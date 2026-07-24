@@ -1,0 +1,7 @@
+# Временные блокировки Roblox Studio
+*.rbxl.lock
+*.rbxlx.lock
+
+# Системные файлы Windows
+Thumbs.db
+Desktop.ini

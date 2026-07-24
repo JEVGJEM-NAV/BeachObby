@@ -1,0 +1,1 @@
+print("Beach Obby: Script Sync работает")
