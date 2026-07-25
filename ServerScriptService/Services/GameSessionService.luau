@@ -103,6 +103,28 @@ function GameSessionService.GetSnapshot(self: Service, player: Player): RunState
 	return createSnapshot(session)
 end
 
+function GameSessionService.StartRun(self: Service, player: Player, startedAtServerTime: number): RunStateSnapshot?
+	local session = self._sessions[player]
+
+	if session == nil or session.phase ~= RunConfig.Phases.NotStarted then
+		return nil
+	end
+
+	if
+		startedAtServerTime ~= startedAtServerTime
+		or startedAtServerTime == math.huge
+		or startedAtServerTime == -math.huge
+	then
+		return nil
+	end
+
+	session.phase = RunConfig.Phases.Running
+	session.startedAtServerTime = startedAtServerTime
+	session.revision += 1
+
+	return createSnapshot(session)
+end
+
 function GameSessionService.Start(players: Players, defaultCheckpoint: BasePart): (Service, boolean)
 	if defaultService ~= nil then
 		return defaultService, false

@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 local GameSessionServiceModule = require(ServerScriptService.Services.GameSessionService)
+local WorldTriggerService = require(ServerScriptService.Services.WorldTriggerService)
 
 local beachObby = ReplicatedStorage:FindFirstChild("BeachObby")
 assert(beachObby ~= nil and beachObby:IsA("Folder"), "ReplicatedStorage.BeachObby must be a Folder")
@@ -16,6 +17,7 @@ assert(remotes ~= nil and remotes:IsA("Folder"), "ReplicatedStorage.BeachObby.Re
 
 local runStateUpdated = remotes:FindFirstChild(RunConfig.Remotes.RunStateUpdated)
 assert(runStateUpdated ~= nil and runStateUpdated:IsA("RemoteEvent"), "RunStateUpdated must be a RemoteEvent")
+local runStateUpdatedRemote = runStateUpdated :: RemoteEvent
 
 local getRunStateInstance = remotes:FindFirstChild(RunConfig.Remotes.GetRunState)
 assert(getRunStateInstance ~= nil and getRunStateInstance:IsA("RemoteFunction"), "GetRunState must be a RemoteFunction")
@@ -31,3 +33,5 @@ if didStart then
 		return GameSessionService:GetSnapshot(player)
 	end
 end
+
+WorldTriggerService.Start(GameSessionService, runStateUpdatedRemote)
