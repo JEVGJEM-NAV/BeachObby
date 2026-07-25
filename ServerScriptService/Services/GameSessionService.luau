@@ -29,6 +29,7 @@ type SessionState = {
 
 type ServiceFields = {
 	_defaultCheckpoint: BasePart,
+	_getServerTimeNow: () -> number,
 	_sessions: { [Player]: SessionState },
 	_characterAddedConnections: { [Player]: RBXScriptConnection },
 	_warnedProblems: { [string]: boolean },
@@ -38,9 +39,16 @@ local GameSessionService = {}
 GameSessionService.__index = GameSessionService
 
 export type Service = typeof(setmetatable({} :: ServiceFields, GameSessionService))
+export type Dependencies = {
+	getServerTimeNow: () -> number,
+}
 
 local defaultService: Service? = nil
 local lifecycleConnections: { RBXScriptConnection } = {}
+
+local function getServerTimeNow(): number
+	return Workspace:GetServerTimeNow()
+end
 
 local function readCheckpointContract(checkpoint: BasePart): (string?, number?, Vector3?)
 	local checkpointId = checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId)
@@ -85,7 +93,7 @@ local function createSnapshot(session: SessionState): RunStateSnapshot
 	}
 end
 
-function GameSessionService.new(defaultCheckpoint: BasePart): Service
+function GameSessionService.new(defaultCheckpoint: BasePart, dependencies: Dependencies?): Service
 	local checkpointId, checkpointOrder = readCheckpointContract(defaultCheckpoint)
 	assert(
 		checkpointId == "Start" and checkpointOrder == 1,
@@ -94,6 +102,7 @@ function GameSessionService.new(defaultCheckpoint: BasePart): Service
 
 	return setmetatable({
 		_defaultCheckpoint = defaultCheckpoint,
+		_getServerTimeNow = if dependencies == nil then getServerTimeNow else dependencies.getServerTimeNow,
 		_sessions = {},
 		_characterAddedConnections = {},
 		_warnedProblems = {},
@@ -215,6 +224,50 @@ function GameSessionService.CollectCoin(self: Service, player: Player, coin: Ins
 
 	session.collectedCoinIds[coinId] = true
 	session.coinCount += 1
+	session.revision += 1
+
+	return createSnapshot(session)
+end
+
+function GameSessionService.FinishRun(self: Service, player: Player, finishPart: Instance): RunStateSnapshot?
+	local session = self._sessions[player]
+
+	if
+		session == nil
+		or session.phase ~= RunConfig.Phases.Running
+		or typeof(session.startedAtServerTime) ~= "number"
+		or not finishPart:IsA("BasePart")
+		or not finishPart:IsDescendantOf(Workspace)
+		or not CollectionService:HasTag(finishPart, RunConfig.Tags.Finish)
+	then
+		return nil
+	end
+
+	local requiredCheckpointOrder = finishPart:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder)
+
+	if
+		typeof(requiredCheckpointOrder) ~= "number"
+		or requiredCheckpointOrder <= 0
+		or requiredCheckpointOrder % 1 ~= 0
+		or session.currentCheckpointOrder ~= requiredCheckpointOrder
+	then
+		return nil
+	end
+
+	local elapsed = self._getServerTimeNow() - session.startedAtServerTime
+
+	if
+		typeof(elapsed) ~= "number"
+		or elapsed ~= elapsed
+		or elapsed == math.huge
+		or elapsed == -math.huge
+		or elapsed < 0
+	then
+		elapsed = 0
+	end
+
+	session.phase = RunConfig.Phases.Finished
+	session.finishedElapsedSeconds = elapsed
 	session.revision += 1
 
 	return createSnapshot(session)
