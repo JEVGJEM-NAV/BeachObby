@@ -1,6 +1,7 @@
 --!strict
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 
@@ -28,6 +29,8 @@ type SessionState = {
 type ServiceFields = {
 	_defaultCheckpoint: BasePart,
 	_sessions: { [Player]: SessionState },
+	_characterAddedConnections: { [Player]: RBXScriptConnection },
+	_warnedProblems: { [string]: boolean },
 }
 
 local GameSessionService = {}
@@ -37,6 +40,30 @@ export type Service = typeof(setmetatable({} :: ServiceFields, GameSessionServic
 
 local defaultService: Service? = nil
 local lifecycleConnections: { RBXScriptConnection } = {}
+
+local function readCheckpointContract(checkpoint: BasePart): (string?, number?, Vector3?)
+	local checkpointId = checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId)
+	local checkpointOrder = checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder)
+	local respawnOffset = checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset)
+
+	if typeof(checkpointId) ~= "string" or checkpointId == "" then
+		return nil, nil, nil
+	end
+
+	if
+		typeof(checkpointOrder) ~= "number"
+		or checkpointOrder <= 0
+		or checkpointOrder % 1 ~= 0
+	then
+		return nil, nil, nil
+	end
+
+	if typeof(respawnOffset) ~= "Vector3" then
+		return nil, nil, nil
+	end
+
+	return checkpointId, checkpointOrder, respawnOffset
+end
 
 local function createSnapshot(session: SessionState): RunStateSnapshot
 	local collectedCoinIds = {}
@@ -58,9 +85,17 @@ local function createSnapshot(session: SessionState): RunStateSnapshot
 end
 
 function GameSessionService.new(defaultCheckpoint: BasePart): Service
+	local checkpointId, checkpointOrder = readCheckpointContract(defaultCheckpoint)
+	assert(
+		checkpointId == "Start" and checkpointOrder == 1,
+		"Default checkpoint must have CheckpointId 'Start', CheckpointOrder 1, and a Vector3 RespawnOffset"
+	)
+
 	return setmetatable({
 		_defaultCheckpoint = defaultCheckpoint,
 		_sessions = {},
+		_characterAddedConnections = {},
+		_warnedProblems = {},
 	}, GameSessionService)
 end
 
@@ -75,8 +110,8 @@ function GameSessionService.CreateSession(self: Service, player: Player): boolea
 		startedAtServerTime = nil,
 		finishedElapsedSeconds = nil,
 		currentCheckpoint = self._defaultCheckpoint,
-		currentCheckpointId = "Start",
-		currentCheckpointOrder = 1,
+		currentCheckpointId = self._defaultCheckpoint:GetAttribute(RunConfig.Attributes.CheckpointId) :: string,
+		currentCheckpointOrder = self._defaultCheckpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder) :: number,
 		collectedCoinIds = {},
 		coinCount = 0,
 	}
@@ -87,6 +122,13 @@ end
 function GameSessionService.RemoveSession(self: Service, player: Player): boolean
 	if self._sessions[player] == nil then
 		return false
+	end
+
+	local characterAddedConnection = self._characterAddedConnections[player]
+
+	if characterAddedConnection ~= nil then
+		characterAddedConnection:Disconnect()
+		self._characterAddedConnections[player] = nil
 	end
 
 	self._sessions[player] = nil
@@ -125,6 +167,109 @@ function GameSessionService.StartRun(self: Service, player: Player, startedAtSer
 	return createSnapshot(session)
 end
 
+function GameSessionService.ReachCheckpoint(self: Service, player: Player, checkpoint: Instance): RunStateSnapshot?
+	local session = self._sessions[player]
+
+	if
+		session == nil
+		or session.phase ~= RunConfig.Phases.Running
+		or not checkpoint:IsA("BasePart")
+		or not checkpoint:IsDescendantOf(Workspace)
+	then
+		return nil
+	end
+
+	local checkpointId, checkpointOrder = readCheckpointContract(checkpoint)
+
+	if checkpointId == nil or checkpointOrder == nil or checkpointOrder <= session.currentCheckpointOrder then
+		return nil
+	end
+
+	session.currentCheckpoint = checkpoint
+	session.currentCheckpointId = checkpointId
+	session.currentCheckpointOrder = checkpointOrder
+	session.revision += 1
+
+	return createSnapshot(session)
+end
+
+function GameSessionService.PlaceCharacterAtCheckpoint(
+	self: Service,
+	player: Player,
+	character: Model
+): boolean
+	local session = self._sessions[player]
+
+	if session == nil or character.Parent == nil then
+		return false
+	end
+
+	local checkpoint = session.currentCheckpoint
+	local _, _, respawnOffset = readCheckpointContract(checkpoint)
+
+	if not checkpoint:IsDescendantOf(Workspace) or respawnOffset == nil then
+		local warningKey = string.format("invalid-checkpoint:%s", session.currentCheckpointId)
+
+		if not self._warnedProblems[warningKey] then
+			self._warnedProblems[warningKey] = true
+			warn(
+				string.format(
+					"Beach Obby: checkpoint %q is unavailable or invalid; using StartSpawn",
+					session.currentCheckpointId
+				)
+			)
+		end
+
+		checkpoint = self._defaultCheckpoint
+		local _, _, defaultOffset = readCheckpointContract(checkpoint)
+		respawnOffset = defaultOffset
+	end
+
+	if not checkpoint:IsDescendantOf(Workspace) or respawnOffset == nil then
+		if not self._warnedProblems["invalid-default-checkpoint"] then
+			self._warnedProblems["invalid-default-checkpoint"] = true
+			warn("Beach Obby: StartSpawn is unavailable or invalid; character placement skipped")
+		end
+
+		return false
+	end
+
+	character:PivotTo(checkpoint.CFrame + respawnOffset)
+	return true
+end
+
+local function connectPlayerLifecycle(service: Service, players: Players, player: Player)
+	service:CreateSession(player)
+
+	if service._characterAddedConnections[player] ~= nil then
+		return
+	end
+
+	local function placeCharacter(character: Model)
+		task.spawn(function()
+			local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+
+			if
+				rootPart == nil
+				or not rootPart:IsA("BasePart")
+				or player.Parent ~= players
+				or player.Character ~= character
+				or service:GetSnapshot(player) == nil
+			then
+				return
+			end
+
+			service:PlaceCharacterAtCheckpoint(player, character)
+		end)
+	end
+
+	service._characterAddedConnections[player] = player.CharacterAdded:Connect(placeCharacter)
+
+	if player.Character ~= nil then
+		placeCharacter(player.Character)
+	end
+end
+
 function GameSessionService.Start(players: Players, defaultCheckpoint: BasePart): (Service, boolean)
 	if defaultService ~= nil then
 		return defaultService, false
@@ -134,11 +279,11 @@ function GameSessionService.Start(players: Players, defaultCheckpoint: BasePart)
 	defaultService = service
 
 	for _, player in players:GetPlayers() do
-		service:CreateSession(player)
+		connectPlayerLifecycle(service, players, player)
 	end
 
 	table.insert(lifecycleConnections, players.PlayerAdded:Connect(function(player)
-		service:CreateSession(player)
+		connectPlayerLifecycle(service, players, player)
 	end))
 
 	table.insert(lifecycleConnections, players.PlayerRemoving:Connect(function(player)

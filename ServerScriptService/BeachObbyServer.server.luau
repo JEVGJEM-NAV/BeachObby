@@ -23,8 +23,14 @@ local getRunStateInstance = remotes:FindFirstChild(RunConfig.Remotes.GetRunState
 assert(getRunStateInstance ~= nil and getRunStateInstance:IsA("RemoteFunction"), "GetRunState must be a RemoteFunction")
 local getRunState = getRunStateInstance :: RemoteFunction
 
-local initialCheckpoint = Workspace:FindFirstChild("SpawnLocation")
-assert(initialCheckpoint ~= nil and initialCheckpoint:IsA("BasePart"), "Workspace.SpawnLocation must be a BasePart")
+local workspaceBeachObby = Workspace:FindFirstChild("BeachObby")
+assert(workspaceBeachObby ~= nil, "Workspace.BeachObby must exist")
+
+local verticalSlice = workspaceBeachObby:FindFirstChild("VerticalSlice")
+assert(verticalSlice ~= nil and verticalSlice:IsA("Model"), "Workspace.BeachObby.VerticalSlice must be a Model")
+
+local initialCheckpoint = verticalSlice:FindFirstChild("StartSpawn")
+assert(initialCheckpoint ~= nil and initialCheckpoint:IsA("SpawnLocation"), "StartSpawn must be a SpawnLocation")
 
 local GameSessionService, didStart = GameSessionServiceModule.Start(Players, initialCheckpoint)
 

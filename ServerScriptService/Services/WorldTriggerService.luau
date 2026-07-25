@@ -18,12 +18,13 @@ type RunStateSnapshot = {
 
 type SessionService = {
 	StartRun: (self: SessionService, player: Player, startedAtServerTime: number) -> RunStateSnapshot?,
+	ReachCheckpoint: (self: SessionService, player: Player, checkpoint: Instance) -> RunStateSnapshot?,
 }
 
 local WorldTriggerService = {}
 
 local started = false
-local triggerConnections: { [Instance]: RBXScriptConnection } = {}
+local triggerConnections: { [string]: { [Instance]: RBXScriptConnection } } = {}
 local lifecycleConnections: { RBXScriptConnection } = {}
 
 local function resolvePlayer(hit: BasePart): Player?
@@ -36,30 +37,58 @@ local function resolvePlayer(hit: BasePart): Player?
 	return Players:GetPlayerFromCharacter(character)
 end
 
-local function disconnectTrigger(instance: Instance)
-	local connection = triggerConnections[instance]
+local function disconnectTrigger(tagName: string, instance: Instance)
+	local connectionsForTag = triggerConnections[tagName]
+
+	if connectionsForTag == nil then
+		return
+	end
+
+	local connection = connectionsForTag[instance]
 
 	if connection == nil then
 		return
 	end
 
 	connection:Disconnect()
-	triggerConnections[instance] = nil
+	connectionsForTag[instance] = nil
 end
 
-local function connectRunStart(instance: Instance, sessionService: SessionService, runStateUpdated: RemoteEvent)
-	if triggerConnections[instance] ~= nil or not instance:IsA("BasePart") then
+local function connectTrigger(
+	tagName: string,
+	instance: Instance,
+	sessionService: SessionService,
+	runStateUpdated: RemoteEvent
+)
+	if not instance:IsA("BasePart") then
 		return
 	end
 
-	triggerConnections[instance] = instance.Touched:Connect(function(hit)
+	local connectionsForTag = triggerConnections[tagName]
+
+	if connectionsForTag == nil then
+		connectionsForTag = {}
+		triggerConnections[tagName] = connectionsForTag
+	end
+
+	if connectionsForTag[instance] ~= nil then
+		return
+	end
+
+	connectionsForTag[instance] = instance.Touched:Connect(function(hit)
 		local player = resolvePlayer(hit)
 
 		if player == nil then
 			return
 		end
 
-		local snapshot = sessionService:StartRun(player, Workspace:GetServerTimeNow())
+		local snapshot: RunStateSnapshot?
+
+		if tagName == RunConfig.Tags.RunStart then
+			snapshot = sessionService:StartRun(player, Workspace:GetServerTimeNow())
+		elseif tagName == RunConfig.Tags.Checkpoint then
+			snapshot = sessionService:ReachCheckpoint(player, instance)
+		end
 
 		if snapshot ~= nil then
 			runStateUpdated:FireClient(player, snapshot)
@@ -74,21 +103,30 @@ function WorldTriggerService.Start(sessionService: SessionService, runStateUpdat
 
 	started = true
 
-	for _, instance in CollectionService:GetTagged(RunConfig.Tags.RunStart) do
-		connectRunStart(instance, sessionService, runStateUpdated)
+	local routedTags = {
+		RunConfig.Tags.RunStart,
+		RunConfig.Tags.Checkpoint,
+	}
+
+	for _, tagName in routedTags do
+		for _, instance in CollectionService:GetTagged(tagName) do
+			connectTrigger(tagName, instance, sessionService, runStateUpdated)
+		end
+
+		table.insert(
+			lifecycleConnections,
+			CollectionService:GetInstanceAddedSignal(tagName):Connect(function(instance)
+				connectTrigger(tagName, instance, sessionService, runStateUpdated)
+			end)
+		)
+
+		table.insert(
+			lifecycleConnections,
+			CollectionService:GetInstanceRemovedSignal(tagName):Connect(function(instance)
+				disconnectTrigger(tagName, instance)
+			end)
+		)
 	end
-
-	table.insert(
-		lifecycleConnections,
-		CollectionService:GetInstanceAddedSignal(RunConfig.Tags.RunStart):Connect(function(instance)
-			connectRunStart(instance, sessionService, runStateUpdated)
-		end)
-	)
-
-	table.insert(
-		lifecycleConnections,
-		CollectionService:GetInstanceRemovedSignal(RunConfig.Tags.RunStart):Connect(disconnectTrigger)
-	)
 
 	return true
 end
