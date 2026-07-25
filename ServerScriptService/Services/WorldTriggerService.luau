@@ -19,6 +19,7 @@ type RunStateSnapshot = {
 type SessionService = {
 	StartRun: (self: SessionService, player: Player, startedAtServerTime: number) -> RunStateSnapshot?,
 	ReachCheckpoint: (self: SessionService, player: Player, checkpoint: Instance) -> RunStateSnapshot?,
+	CollectCoin: (self: SessionService, player: Player, coin: Instance) -> RunStateSnapshot?,
 }
 
 type Disconnectable = {
@@ -131,9 +132,9 @@ local function connectTrigger(self: RouterService, tagName: string, instance: In
 			return
 		end
 
-		local _, player = resolveCharacterAndPlayer(self, hit)
+		local character, player = resolveCharacterAndPlayer(self, hit)
 
-		if player == nil then
+		if character == nil or player == nil or player.Character ~= character then
 			return
 		end
 
@@ -143,6 +144,8 @@ local function connectTrigger(self: RouterService, tagName: string, instance: In
 			snapshot = self._sessionService:StartRun(player, self._dependencies.workspace:GetServerTimeNow())
 		elseif tagName == RunConfig.Tags.Checkpoint then
 			snapshot = self._sessionService:ReachCheckpoint(player, instance)
+		elseif tagName == RunConfig.Tags.Coin then
+			snapshot = self._sessionService:CollectCoin(player, instance)
 		end
 
 		if snapshot ~= nil then
@@ -172,6 +175,7 @@ function Router.Start(self: RouterService): boolean
 		RunConfig.Tags.RunStart,
 		RunConfig.Tags.Checkpoint,
 		RunConfig.Tags.Hazard,
+		RunConfig.Tags.Coin,
 	}
 
 	for _, tagName in routedTags do

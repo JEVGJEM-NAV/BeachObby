@@ -1,5 +1,6 @@
 --!strict
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -188,6 +189,32 @@ function GameSessionService.ReachCheckpoint(self: Service, player: Player, check
 	session.currentCheckpoint = checkpoint
 	session.currentCheckpointId = checkpointId
 	session.currentCheckpointOrder = checkpointOrder
+	session.revision += 1
+
+	return createSnapshot(session)
+end
+
+function GameSessionService.CollectCoin(self: Service, player: Player, coin: Instance): RunStateSnapshot?
+	local session = self._sessions[player]
+
+	if
+		session == nil
+		or session.phase ~= RunConfig.Phases.Running
+		or not coin:IsA("BasePart")
+		or not coin:IsDescendantOf(Workspace)
+		or not CollectionService:HasTag(coin, RunConfig.Tags.Coin)
+	then
+		return nil
+	end
+
+	local coinId = coin:GetAttribute(RunConfig.Attributes.CoinId)
+
+	if typeof(coinId) ~= "string" or coinId == "" or session.collectedCoinIds[coinId] then
+		return nil
+	end
+
+	session.collectedCoinIds[coinId] = true
+	session.coinCount += 1
 	session.revision += 1
 
 	return createSnapshot(session)
