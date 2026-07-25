@@ -9,4 +9,5 @@ end
 local TestRunner = require(script.Parent.TestRunner)
 
 require(script.Parent.RunConfigSpec)
+require(script.Parent.GameSessionServiceSpec)
 TestRunner.run()
