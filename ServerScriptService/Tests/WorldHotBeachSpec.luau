@@ -1,9 +1,11 @@
 --!strict
 
 local CollectionService = game:GetService("CollectionService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestRunner = require(script.Parent.TestRunner)
 local RunConfig = require(game:GetService("ReplicatedStorage").BeachObby.Shared.RunConfig)
+local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 
 local beachObby = workspace:WaitForChild("BeachObby")
 local world = beachObby:WaitForChild("World")
@@ -124,7 +126,7 @@ TestRunner.test("HotBeach HotSandVisual is passive and untagged", function()
 	assertNoTagsOrAttributes(visual)
 end)
 
-TestRunner.test("HotBeach HotSandHazard is the only tagged Scene01 object", function()
+TestRunner.test("HotBeach has exactly four Hazard-tagged objects", function()
 	local hazards = expectChild(scene, "Hazards", "Folder")
 	local hazard = expectChild(hazards, "HotSandHazard", "Part")
 	TestRunner.assertTrue(hazard:IsA("BasePart"))
@@ -132,14 +134,24 @@ TestRunner.test("HotBeach HotSandHazard is the only tagged Scene01 object", func
 	TestRunner.assertEqual(#tags, 1)
 	TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
 
+	local expectedHazards: { [Instance]: boolean } = { [hazard] = true }
+	for _, runnerName in WorldConfig.HotBeach.RunnerNames do
+		local runner = scene.Hazards.StickFigures:FindFirstChild(runnerName)
+		TestRunner.assertTrue(runner ~= nil)
+		expectedHazards[(runner :: Model).Hitbox] = true
+	end
+
 	local taggedCount = 0
 	for _, descendant in scene:GetDescendants() do
 		if #CollectionService:GetTags(descendant) > 0 then
 			taggedCount += 1
-			TestRunner.assertEqual(descendant, hazard)
+			TestRunner.assertTrue(expectedHazards[descendant] == true)
+			local descendantTags = CollectionService:GetTags(descendant)
+			TestRunner.assertEqual(#descendantTags, 1)
+			TestRunner.assertEqual(descendantTags[1], RunConfig.Tags.Hazard)
 		end
 	end
-	TestRunner.assertEqual(taggedCount, 1)
+	TestRunner.assertEqual(taggedCount, 4)
 end)
 
 TestRunner.test("HotBeach HotSandHazard has safe trigger properties", function()
@@ -210,15 +222,73 @@ TestRunner.test("HotBeach has exactly three Runner Models", function()
 	end
 end)
 
-TestRunner.test("HotBeach Runner hitboxes are inert placeholders", function()
+TestRunner.test("HotBeach Runner hitboxes are active universal hazards", function()
 	for _, runner in scene.Hazards.StickFigures:GetChildren() do
 		local hitbox = runner:FindFirstChild("Hitbox") :: BasePart
 		TestRunner.assertTrue(hitbox ~= nil and hitbox:IsA("BasePart"))
 		TestRunner.assertTrue(hitbox.Anchored)
 		TestRunner.assertFalse(hitbox.CanCollide)
-		TestRunner.assertFalse(hitbox.CanTouch)
+		TestRunner.assertTrue(hitbox.CanTouch)
 		TestRunner.assertTrue(hitbox.CanQuery)
-		assertNoTagsOrAttributes(hitbox)
+		local tags = CollectionService:GetTags(hitbox)
+		TestRunner.assertEqual(#tags, 1)
+		TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
+		TestRunner.assertEqual(next(hitbox:GetAttributes()), nil)
+	end
+end)
+
+TestRunner.test("HotBeach Runner visuals stay passive and untagged", function()
+	for _, runner in scene.Hazards.StickFigures:GetChildren() do
+		for _, visualPart in runner.Visual:GetDescendants() do
+			if visualPart:IsA("BasePart") then
+				TestRunner.assertTrue(visualPart.Anchored)
+				TestRunner.assertFalse(visualPart.CanCollide)
+				TestRunner.assertFalse(visualPart.CanTouch)
+				TestRunner.assertFalse(visualPart.CanQuery)
+				assertNoTagsOrAttributes(visualPart)
+			end
+		end
+	end
+end)
+
+TestRunner.test("HotBeach moving runner paths match WorldConfig", function()
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		TestRunner.assertEqual(entry.SceneName, scene.Name)
+		local runner = scene.Hazards.StickFigures:FindFirstChild(entry.ModelName)
+		local startMarker = scene.MovementPaths:FindFirstChild(entry.StartMarkerName)
+		local endMarker = scene.MovementPaths:FindFirstChild(entry.EndMarkerName)
+		TestRunner.assertTrue(runner ~= nil and runner:IsA("Model"))
+		TestRunner.assertTrue(startMarker ~= nil and startMarker:IsA("BasePart"))
+		TestRunner.assertTrue(endMarker ~= nil and endMarker:IsA("BasePart"))
+		TestRunner.assertTrue((startMarker :: BasePart).Position ~= (endMarker :: BasePart).Position)
+	end
+end)
+
+TestRunner.test("HotBeach runner lanes avoid Start and End platforms", function()
+	local startPlatform = scene.Geometry.StartPlatform :: BasePart
+	local endPlatform = scene.Geometry.EndPlatform :: BasePart
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		local runner = scene.Hazards.StickFigures[entry.ModelName] :: Model
+		local hitbox = runner.Hitbox :: BasePart
+		local startPosition = scene.MovementPaths[entry.StartMarkerName].Position
+		local endPosition = scene.MovementPaths[entry.EndMarkerName].Position
+		local laneMin = Vector3.new(
+			math.min(startPosition.X, endPosition.X) - hitbox.Size.X / 2,
+			0,
+			math.min(startPosition.Z, endPosition.Z) - hitbox.Size.Z / 2
+		)
+		local laneMax = Vector3.new(
+			math.max(startPosition.X, endPosition.X) + hitbox.Size.X / 2,
+			0,
+			math.max(startPosition.Z, endPosition.Z) + hitbox.Size.Z / 2
+		)
+		for _, platform in { startPlatform, endPlatform } do
+			local platformMin = platform.Position - platform.Size / 2
+			local platformMax = platform.Position + platform.Size / 2
+			local intersectsXZ = laneMin.X <= platformMax.X and laneMax.X >= platformMin.X
+				and laneMin.Z <= platformMax.Z and laneMax.Z >= platformMin.Z
+			TestRunner.assertFalse(intersectsXZ, entry.Id .. " lane overlaps " .. platform.Name)
+		end
 	end
 end)
 

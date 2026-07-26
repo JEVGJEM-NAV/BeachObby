@@ -62,10 +62,51 @@ local HotBeach = table.freeze({
 	WaterStartCheckpointId = "WaterStart",
 })
 
+local Runner01 = table.freeze({
+	Id = "Runner01",
+	SceneName = "Scene01_HotBeach",
+	ModelName = "Runner01",
+	StartMarkerName = "Runner01_Start",
+	EndMarkerName = "Runner01_End",
+	OneWayDurationSeconds = 6,
+	PhaseOffset = 0,
+})
+
+local Runner02 = table.freeze({
+	Id = "Runner02",
+	SceneName = "Scene01_HotBeach",
+	ModelName = "Runner02",
+	StartMarkerName = "Runner02_Start",
+	EndMarkerName = "Runner02_End",
+	OneWayDurationSeconds = 6,
+	PhaseOffset = 0.2,
+})
+
+local Runner03 = table.freeze({
+	Id = "Runner03",
+	SceneName = "Scene01_HotBeach",
+	ModelName = "Runner03",
+	StartMarkerName = "Runner03_Start",
+	EndMarkerName = "Runner03_End",
+	OneWayDurationSeconds = 6,
+	PhaseOffset = 0.55,
+})
+
+local Runners = table.freeze({
+	Runner01,
+	Runner02,
+	Runner03,
+})
+
+local MovingHazards = table.freeze({
+	Runners = Runners,
+})
+
 return table.freeze({
 	Root = Root,
 	Scenes = Scenes,
 	Shared = Shared,
 	CommonFolders = CommonFolders,
 	HotBeach = HotBeach,
+	MovingHazards = MovingHazards,
 })

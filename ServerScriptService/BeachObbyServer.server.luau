@@ -2,11 +2,14 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
+local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 local GameSessionServiceModule = require(ServerScriptService.Services.GameSessionService)
+local MovingHazardService = require(ServerScriptService.Services.MovingHazardService)
 local WorldTriggerService = require(ServerScriptService.Services.WorldTriggerService)
 
 local beachObby = ReplicatedStorage:FindFirstChild("BeachObby")
@@ -41,3 +44,17 @@ if didStart then
 end
 
 WorldTriggerService.Start(GameSessionService, runStateUpdatedRemote)
+
+local world = workspaceBeachObby:FindFirstChild(WorldConfig.Root.World)
+assert(world ~= nil and world:IsA("Model"), "Workspace.BeachObby.World must be a Model")
+
+local movingHazards = MovingHazardService.new({
+	WorldRoot = world,
+	ConfigEntries = WorldConfig.MovingHazards.Runners,
+	HeartbeatSignal = RunService.Heartbeat,
+	Now = function()
+		return Workspace:GetServerTimeNow()
+	end,
+})
+
+movingHazards:Start()

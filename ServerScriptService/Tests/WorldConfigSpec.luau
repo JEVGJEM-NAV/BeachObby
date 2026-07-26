@@ -221,4 +221,79 @@ TestRunner.test("WorldConfig HotBeach rejects changing or adding values", functi
 	TestRunner.assertTrue((WorldConfig.HotBeach :: any).NewValue == nil)
 end)
 
+TestRunner.test("WorldConfig MovingHazards tables are frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.MovingHazards))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.MovingHazards.Runners))
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		TestRunner.assertTrue(table.isfrozen(entry))
+	end
+end)
+
+TestRunner.test("WorldConfig MovingHazards defines exactly three runners", function()
+	TestRunner.assertEqual(#WorldConfig.MovingHazards.Runners, 3)
+end)
+
+TestRunner.test("WorldConfig moving runner identities are unique", function()
+	local ids: { string } = {}
+	local modelNames: { string } = {}
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		table.insert(ids, entry.Id)
+		table.insert(modelNames, entry.ModelName)
+	end
+	assertArrayUnique(ids)
+	assertArrayUnique(modelNames)
+end)
+
+TestRunner.test("WorldConfig moving runner names are non-empty strings", function()
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		for _, value in { entry.Id, entry.SceneName, entry.ModelName, entry.StartMarkerName, entry.EndMarkerName } do
+			TestRunner.assertTrue(typeof(value) == "string")
+			TestRunner.assertTrue(value ~= "")
+		end
+	end
+end)
+
+TestRunner.test("WorldConfig moving runner durations are positive", function()
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		TestRunner.assertTrue(typeof(entry.OneWayDurationSeconds) == "number")
+		TestRunner.assertTrue(entry.OneWayDurationSeconds > 0)
+	end
+end)
+
+TestRunner.test("WorldConfig moving runner phases are normalized", function()
+	for _, entry in WorldConfig.MovingHazards.Runners do
+		TestRunner.assertTrue(typeof(entry.PhaseOffset) == "number")
+		TestRunner.assertTrue(entry.PhaseOffset >= 0)
+		TestRunner.assertTrue(entry.PhaseOffset < 1)
+	end
+end)
+
+TestRunner.test("WorldConfig moving runners do not all share one schedule", function()
+	local first = WorldConfig.MovingHazards.Runners[1]
+	local differs = false
+	for index = 2, #WorldConfig.MovingHazards.Runners do
+		local entry = WorldConfig.MovingHazards.Runners[index]
+		if entry.PhaseOffset ~= first.PhaseOffset or entry.OneWayDurationSeconds ~= first.OneWayDurationSeconds then
+			differs = true
+		end
+	end
+	TestRunner.assertTrue(differs)
+end)
+
+TestRunner.test("WorldConfig rejects changing or extending MovingHazards", function()
+	local entry = WorldConfig.MovingHazards.Runners[1]
+	TestRunner.assertError(function()
+		entry.OneWayDurationSeconds = 1
+	end)
+	TestRunner.assertError(function()
+		(WorldConfig.MovingHazards.Runners :: any)[4] = entry
+	end)
+	TestRunner.assertError(function()
+		(WorldConfig.MovingHazards :: any).NewValue = "NewValue"
+	end)
+	TestRunner.assertEqual(entry.OneWayDurationSeconds, 6)
+	TestRunner.assertEqual(#WorldConfig.MovingHazards.Runners, 3)
+	TestRunner.assertTrue((WorldConfig.MovingHazards :: any).NewValue == nil)
+end)
+
 return true
