@@ -296,4 +296,97 @@ TestRunner.test("WorldConfig rejects changing or extending MovingHazards", funct
 	TestRunner.assertTrue((WorldConfig.MovingHazards :: any).NewValue == nil)
 end)
 
+TestRunner.test("WorldConfig Water table is frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.Water))
+end)
+
+TestRunner.test("WorldConfig Water RingNames are frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.Water.RingNames))
+end)
+
+TestRunner.test("WorldConfig Water CoinIds are frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.Water.CoinIds))
+end)
+
+TestRunner.test("WorldConfig Water defines exactly eight rings", function()
+	TestRunner.assertEqual(#WorldConfig.Water.RingNames, 8)
+	for index = 1, 8 do
+		TestRunner.assertEqual(WorldConfig.Water.RingNames[index], string.format("Ring%02d", index))
+	end
+end)
+
+TestRunner.test("WorldConfig Water ring names are unique", function()
+	assertArrayUnique(WorldConfig.Water.RingNames)
+end)
+
+TestRunner.test("WorldConfig Water defines exactly four CoinIds", function()
+	TestRunner.assertEqual(#WorldConfig.Water.CoinIds, 4)
+	for index = 1, 4 do
+		TestRunner.assertEqual(WorldConfig.Water.CoinIds[index], string.format("WaterCoin%02d", index))
+	end
+end)
+
+TestRunner.test("WorldConfig Water CoinIds are unique", function()
+	assertArrayUnique(WorldConfig.Water.CoinIds)
+end)
+
+TestRunner.test("WorldConfig Water and HotBeach CoinIds do not overlap", function()
+	local hotBeachIds: { [string]: boolean } = {}
+	for _, coinId in WorldConfig.HotBeach.CoinIds do
+		hotBeachIds[coinId] = true
+	end
+	for _, coinId in WorldConfig.Water.CoinIds do
+		TestRunner.assertFalse(hotBeachIds[coinId] == true)
+	end
+end)
+
+TestRunner.test("WorldConfig Water checkpoint ID is stable", function()
+	TestRunner.assertEqual(WorldConfig.Water.LaserIslandStartCheckpointId, "LaserIslandStart")
+	TestRunner.assertFalse(WorldConfig.Water.LaserIslandStartCheckpointId == WorldConfig.HotBeach.WaterStartCheckpointId)
+end)
+
+TestRunner.test("WorldConfig Water names are non-empty strings", function()
+	local water = WorldConfig.Water
+	for _, value in {
+		water.SceneFootprint,
+		water.WaterSurface,
+		water.WaterKillPlane,
+		water.RingsFolder,
+		water.SharksFolder,
+		water.LaserIslandStartMarker,
+		water.LaserIslandStartCheckpointId,
+	} do
+		TestRunner.assertTrue(typeof(value) == "string")
+		TestRunner.assertTrue(value ~= "")
+	end
+	for _, values in { water.RingNames, water.CoinIds } do
+		for _, value in values do
+			TestRunner.assertTrue(typeof(value) == "string")
+			TestRunner.assertTrue(value ~= "")
+		end
+	end
+end)
+
+TestRunner.test("WorldConfig rejects changing Water values", function()
+	TestRunner.assertError(function()
+		WorldConfig.Water.LaserIslandStartCheckpointId = "Changed"
+	end)
+	TestRunner.assertError(function()
+		WorldConfig.Water.RingNames[1] = "Changed"
+	end)
+	TestRunner.assertEqual(WorldConfig.Water.LaserIslandStartCheckpointId, "LaserIslandStart")
+	TestRunner.assertEqual(WorldConfig.Water.RingNames[1], "Ring01")
+end)
+
+TestRunner.test("WorldConfig rejects extending Water values", function()
+	TestRunner.assertError(function()
+		(WorldConfig.Water :: any).NewValue = "NewValue"
+	end)
+	TestRunner.assertError(function()
+		(WorldConfig.Water.CoinIds :: any)[5] = "WaterCoin05"
+	end)
+	TestRunner.assertTrue((WorldConfig.Water :: any).NewValue == nil)
+	TestRunner.assertEqual(#WorldConfig.Water.CoinIds, 4)
+end)
+
 return true

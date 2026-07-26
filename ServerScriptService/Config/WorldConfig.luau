@@ -62,6 +62,36 @@ local HotBeach = table.freeze({
 	WaterStartCheckpointId = "WaterStart",
 })
 
+local RingNames = table.freeze({
+	"Ring01",
+	"Ring02",
+	"Ring03",
+	"Ring04",
+	"Ring05",
+	"Ring06",
+	"Ring07",
+	"Ring08",
+})
+
+local WaterCoinIds = table.freeze({
+	"WaterCoin01",
+	"WaterCoin02",
+	"WaterCoin03",
+	"WaterCoin04",
+})
+
+local Water = table.freeze({
+	SceneFootprint = "SceneFootprint",
+	WaterSurface = "WaterSurface",
+	WaterKillPlane = "WaterKillPlane",
+	RingsFolder = "Rings",
+	SharksFolder = "Sharks",
+	LaserIslandStartMarker = "LaserIslandStartCheckpointMarker",
+	RingNames = RingNames,
+	CoinIds = WaterCoinIds,
+	LaserIslandStartCheckpointId = "LaserIslandStart",
+})
+
 local Runner01 = table.freeze({
 	Id = "Runner01",
 	SceneName = "Scene01_HotBeach",
@@ -108,5 +138,6 @@ return table.freeze({
 	Shared = Shared,
 	CommonFolders = CommonFolders,
 	HotBeach = HotBeach,
+	Water = Water,
 	MovingHazards = MovingHazards,
 })

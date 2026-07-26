@@ -353,8 +353,8 @@ TestRunner.test("HotBeach hierarchy has no duplicate immediate child names", fun
 	end
 end)
 
-TestRunner.test("Other MVP scenes retain the passive Phase 2.1 contract", function()
-	for _, sceneName in { "Scene02_Water", "Scene03_LaserIsland", "Scene04_PalmFinish" } do
+TestRunner.test("Future MVP scenes retain the passive Phase 2.1 contract", function()
+	for _, sceneName in { "Scene03_LaserIsland", "Scene04_PalmFinish" } do
 		local otherScene = expectChild(world, sceneName, "Model")
 		for _, descendant in otherScene:GetDescendants() do
 			assertNoTagsOrAttributes(descendant)
@@ -423,18 +423,16 @@ TestRunner.test("World remains horizontally inside and above Baseplate", functio
 	TestRunner.assertTrue(worldBounds.min.Y >= baseplateBounds.max.Y - 0.001)
 end)
 
-TestRunner.test("World scene center offsets retain the accepted Phase 2.2 layout", function()
-	local scene01Center = select(1, world.Scene01_HotBeach:GetBoundingBox()).Position
-	local expectedOffsets = {
-		Scene01_HotBeach = Vector3.new(0, 0, 0),
-		Scene02_Water = Vector3.new(0, -2.375, -85),
-		Scene03_LaserIsland = Vector3.new(2, -2.375, -160),
-		Scene04_PalmFinish = Vector3.new(103.5, -2.375, -162),
+TestRunner.test("World scene anchor positions retain the accepted layout", function()
+	local anchors = {
+		Scene01_HotBeach = { part = world.Scene01_HotBeach.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -22) },
+		Scene02_Water = { part = world.Scene02_Water.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -107) },
+		Scene03_LaserIsland = { part = world.Scene03_LaserIsland.Geometry.IslandFootprint, position = Vector3.new(111, 0.5, -184) },
+		Scene04_PalmFinish = { part = world.Scene04_PalmFinish.Geometry.SceneFootprint, position = Vector3.new(214.5, 0.5, -184) },
 	}
 
-	for sceneName, expectedOffset in expectedOffsets do
-		local sceneCenter = select(1, world[sceneName]:GetBoundingBox()).Position
-		assertVectorNear(sceneCenter - scene01Center, expectedOffset, 0.001, sceneName .. " center offset")
+	for sceneName, contract in anchors do
+		assertVectorNear(contract.part.Position, contract.position, 0.001, sceneName .. " anchor position")
 	end
 end)
 
