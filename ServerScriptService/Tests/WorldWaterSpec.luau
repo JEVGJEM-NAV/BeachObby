@@ -710,7 +710,7 @@ TestRunner.test("Water shark dangerous probes are bitten while both safe sides r
 	end
 end)
 
-TestRunner.test("Water and World contain the expected Phase 2.5 Hazard counts", function()
+TestRunner.test("Water retains its hazards within Phase 2.6 World counts", function()
 	local sceneHazards = 0
 	for _, descendant in scene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then sceneHazards += 1 end
@@ -721,7 +721,7 @@ TestRunner.test("Water and World contain the expected Phase 2.5 Hazard counts", 
 	for _, descendant in world:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then worldHazards += 1 end
 	end
-	TestRunner.assertEqual(worldHazards, 7)
+	TestRunner.assertEqual(worldHazards, 8)
 end)
 
 TestRunner.test("Water scene contains no nested scripts", function()
@@ -749,8 +749,8 @@ TestRunner.test("HotBeach retains exactly four active hazards", function()
 	TestRunner.assertEqual(count, 4)
 end)
 
-TestRunner.test("Future scenes retain the passive Phase 2.1 contract", function()
-	for _, sceneName in { WorldConfig.Scenes.LaserIsland, WorldConfig.Scenes.PalmFinish } do
+TestRunner.test("Water regression keeps future Palm scene passive", function()
+	for _, sceneName in { WorldConfig.Scenes.PalmFinish } do
 		for _, descendant in world[sceneName]:GetDescendants() do
 			assertNoTagsOrAttributes(descendant)
 			TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))

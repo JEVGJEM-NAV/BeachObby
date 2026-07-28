@@ -92,6 +92,24 @@ local Water = table.freeze({
 	LaserIslandStartCheckpointId = "LaserIslandStart",
 })
 
+local LaserIslandCoinIds = table.freeze({
+	"LaserIslandCoin01",
+	"LaserIslandCoin02",
+	"LaserIslandCoin03",
+	"LaserIslandCoin04",
+	"LaserIslandCoin05",
+})
+
+local LaserIsland = table.freeze({
+	IslandBase = "IslandBase",
+	CenterSphere = "CenterSphere",
+	LaserAssembly = "LaserAssembly",
+	LaserBar = "LaserBar",
+	CoinIds = LaserIslandCoinIds,
+	PalmBaseCheckpointMarker = "PalmBaseCheckpoint",
+	PalmBaseCheckpointId = "PalmBase",
+})
+
 local Runner01 = table.freeze({
 	Id = "Runner01",
 	SceneName = "Scene01_HotBeach",
@@ -158,6 +176,25 @@ local MovingHazards = table.freeze({
 	Sharks = Sharks,
 })
 
+local LaserIslandLaser = table.freeze({
+	Id = "LaserIslandLaser",
+	SceneName = "Scene03_LaserIsland",
+	ModelName = "LaserAssembly",
+	PivotPartName = "CenterSphere",
+	RotationAxis = "Y",
+	SecondsPerRevolution = 6,
+	PhaseOffset = 0,
+	Direction = -1,
+})
+
+local RotatingLasers = table.freeze({
+	LaserIslandLaser,
+})
+
+local RotatingHazards = table.freeze({
+	Lasers = RotatingLasers,
+})
+
 return table.freeze({
 	Root = Root,
 	Scenes = Scenes,
@@ -165,5 +202,7 @@ return table.freeze({
 	CommonFolders = CommonFolders,
 	HotBeach = HotBeach,
 	Water = Water,
+	LaserIsland = LaserIsland,
 	MovingHazards = MovingHazards,
+	RotatingHazards = RotatingHazards,
 })

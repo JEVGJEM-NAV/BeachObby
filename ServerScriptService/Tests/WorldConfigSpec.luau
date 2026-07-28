@@ -494,4 +494,112 @@ TestRunner.test("WorldConfig rejects extending Water values", function()
 	TestRunner.assertEqual(#WorldConfig.Water.CoinIds, 4)
 end)
 
+TestRunner.test("WorldConfig LaserIsland tables are frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.LaserIsland))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.LaserIsland.CoinIds))
+end)
+
+TestRunner.test("WorldConfig LaserIsland retains the approved stable names", function()
+	local laserIsland = WorldConfig.LaserIsland
+	TestRunner.assertEqual(laserIsland.IslandBase, "IslandBase")
+	TestRunner.assertEqual(laserIsland.CenterSphere, "CenterSphere")
+	TestRunner.assertEqual(laserIsland.LaserAssembly, "LaserAssembly")
+	TestRunner.assertEqual(laserIsland.LaserBar, "LaserBar")
+	TestRunner.assertEqual(laserIsland.PalmBaseCheckpointMarker, "PalmBaseCheckpoint")
+	TestRunner.assertEqual(laserIsland.PalmBaseCheckpointId, "PalmBase")
+end)
+
+TestRunner.test("WorldConfig LaserIsland defines five unique CoinIds", function()
+	local coinIds = WorldConfig.LaserIsland.CoinIds
+	TestRunner.assertEqual(#coinIds, 5)
+	for index, coinId in coinIds do
+		TestRunner.assertEqual(coinId, string.format("LaserIslandCoin%02d", index))
+	end
+	assertArrayUnique(coinIds)
+end)
+
+TestRunner.test("WorldConfig LaserIsland CoinIds do not overlap prior scenes", function()
+	local prior: { [string]: boolean } = {}
+	for _, ids in { WorldConfig.HotBeach.CoinIds, WorldConfig.Water.CoinIds } do
+		for _, id in ids do prior[id] = true end
+	end
+	for _, id in WorldConfig.LaserIsland.CoinIds do
+		TestRunner.assertFalse(prior[id] == true)
+	end
+end)
+
+TestRunner.test("WorldConfig RotatingHazards defines one frozen laser", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.RotatingHazards))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.RotatingHazards.Lasers))
+	TestRunner.assertEqual(#WorldConfig.RotatingHazards.Lasers, 1)
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.RotatingHazards.Lasers[1]))
+end)
+
+TestRunner.test("WorldConfig rotating laser retains the approved contract", function()
+	local entry = WorldConfig.RotatingHazards.Lasers[1]
+	local expected = {
+		Id = "LaserIslandLaser",
+		SceneName = "Scene03_LaserIsland",
+		ModelName = "LaserAssembly",
+		PivotPartName = "CenterSphere",
+		RotationAxis = "Y",
+		SecondsPerRevolution = 6,
+		PhaseOffset = 0,
+		Direction = -1,
+	}
+	for name, value in expected do TestRunner.assertEqual(entry[name], value) end
+end)
+
+TestRunner.test("WorldConfig rotating fields have valid values", function()
+	for _, entry in WorldConfig.RotatingHazards.Lasers do
+		for _, field in { "Id", "SceneName", "ModelName", "PivotPartName", "RotationAxis" } do
+			TestRunner.assertTrue(typeof(entry[field]) == "string" and entry[field] ~= "")
+		end
+		TestRunner.assertTrue(entry.SecondsPerRevolution > 0)
+		TestRunner.assertTrue(entry.PhaseOffset >= 0 and entry.PhaseOffset < 1)
+		TestRunner.assertTrue(entry.RotationAxis == "X" or entry.RotationAxis == "Y" or entry.RotationAxis == "Z")
+		TestRunner.assertTrue(entry.Direction == -1 or entry.Direction == 1)
+	end
+end)
+
+TestRunner.test("WorldConfig hazard Ids are unique across moving and rotating services", function()
+	local ids: { string } = {}
+	for _, entries in {
+		WorldConfig.MovingHazards.Runners,
+		WorldConfig.MovingHazards.Sharks,
+		WorldConfig.RotatingHazards.Lasers,
+	} do
+		for _, entry in entries do table.insert(ids, entry.Id) end
+	end
+	assertArrayUnique(ids)
+end)
+
+TestRunner.test("WorldConfig rotating contract contains no Instances CFrames or Vector3s", function()
+	local function inspect(value: any)
+		local valueType = typeof(value)
+		TestRunner.assertFalse(valueType == "Instance")
+		TestRunner.assertFalse(valueType == "CFrame")
+		TestRunner.assertFalse(valueType == "Vector3")
+		if valueType == "table" then
+			for key, child in value do
+				inspect(key)
+				inspect(child)
+			end
+		end
+	end
+	inspect(WorldConfig.LaserIsland)
+	inspect(WorldConfig.RotatingHazards)
+end)
+
+TestRunner.test("WorldConfig rejects rotating and LaserIsland mutation", function()
+	local entry = WorldConfig.RotatingHazards.Lasers[1]
+	TestRunner.assertError(function() entry.Direction = 1 end)
+	TestRunner.assertError(function() (WorldConfig.RotatingHazards.Lasers :: any)[2] = entry end)
+	TestRunner.assertError(function() WorldConfig.LaserIsland.CoinIds[1] = "Changed" end)
+	TestRunner.assertError(function() (WorldConfig.LaserIsland :: any).NewValue = "Changed" end)
+	TestRunner.assertEqual(entry.Direction, -1)
+	TestRunner.assertEqual(#WorldConfig.RotatingHazards.Lasers, 1)
+	TestRunner.assertEqual(WorldConfig.LaserIsland.CoinIds[1], "LaserIslandCoin01")
+end)
+
 return true

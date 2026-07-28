@@ -10,6 +10,7 @@ local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 local GameSessionServiceModule = require(ServerScriptService.Services.GameSessionService)
 local MovingHazardService = require(ServerScriptService.Services.MovingHazardService)
+local RotatingHazardService = require(ServerScriptService.Services.RotatingHazardService)
 local WorldTriggerService = require(ServerScriptService.Services.WorldTriggerService)
 
 local beachObby = ReplicatedStorage:FindFirstChild("BeachObby")
@@ -68,3 +69,14 @@ local movingHazards = MovingHazardService.new({
 })
 
 movingHazards:Start()
+
+local rotatingHazards = RotatingHazardService.new({
+	WorldRoot = world,
+	ConfigEntries = WorldConfig.RotatingHazards.Lasers,
+	HeartbeatSignal = RunService.Heartbeat,
+	Now = function()
+		return Workspace:GetServerTimeNow()
+	end,
+})
+
+rotatingHazards:Start()

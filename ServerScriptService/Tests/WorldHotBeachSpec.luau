@@ -353,8 +353,8 @@ TestRunner.test("HotBeach hierarchy has no duplicate immediate child names", fun
 	end
 end)
 
-TestRunner.test("Future MVP scenes retain the passive Phase 2.1 contract", function()
-	for _, sceneName in { "Scene03_LaserIsland", "Scene04_PalmFinish" } do
+TestRunner.test("HotBeach regression keeps future Palm scene passive", function()
+	for _, sceneName in { "Scene04_PalmFinish" } do
 		local otherScene = expectChild(world, sceneName, "Model")
 		for _, descendant in otherScene:GetDescendants() do
 			assertNoTagsOrAttributes(descendant)
@@ -427,7 +427,7 @@ TestRunner.test("World scene anchor positions retain the accepted layout", funct
 	local anchors = {
 		Scene01_HotBeach = { part = world.Scene01_HotBeach.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -22) },
 		Scene02_Water = { part = world.Scene02_Water.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -107) },
-		Scene03_LaserIsland = { part = world.Scene03_LaserIsland.Geometry.IslandFootprint, position = Vector3.new(111, 0.5, -184) },
+		Scene03_LaserIsland = { part = world.Scene03_LaserIsland.Geometry.IslandBase, position = Vector3.new(111, 1.5, -184) },
 		Scene04_PalmFinish = { part = world.Scene04_PalmFinish.Geometry.SceneFootprint, position = Vector3.new(214.5, 0.5, -184) },
 	}
 

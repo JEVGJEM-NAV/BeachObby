@@ -158,9 +158,9 @@ TestRunner.test("Temporary access retains deep water geometry", function()
 	TestRunner.assertTrue((killPlane.Size - Vector3.new(40, 0.3, 56)).Magnitude <= 0.001)
 end)
 
-TestRunner.test("Temporary access retains Phase 2.5 Hazard counts", function()
+TestRunner.test("Temporary access retains Phase 2.6 Hazard counts", function()
 	TestRunner.assertEqual(countHazards(scene02), 3)
-	TestRunner.assertEqual(countHazards(beachObby.World), 7)
+	TestRunner.assertEqual(countHazards(beachObby.World), 8)
 end)
 
 TestRunner.test("Temporary access ends only at Scene01 StartPlatform", function()
@@ -172,8 +172,8 @@ TestRunner.test("Temporary access ends only at Scene01 StartPlatform", function(
 	end
 end)
 
-TestRunner.test("Temporary access does not introduce Phase 2.6 objects", function()
-	for _, sceneName in { "Scene03_LaserIsland", "Scene04_PalmFinish" } do
+TestRunner.test("Temporary access does not introduce Phase 2.7 objects", function()
+	for _, sceneName in { "Scene04_PalmFinish" } do
 		for _, descendant in beachObby.World[sceneName]:GetDescendants() do
 			TestRunner.assertFalse(CollectionService:HasTag(descendant, RunConfig.Tags.Hazard))
 			TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
