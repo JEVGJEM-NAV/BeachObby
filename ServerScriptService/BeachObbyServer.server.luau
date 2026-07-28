@@ -48,9 +48,19 @@ WorldTriggerService.Start(GameSessionService, runStateUpdatedRemote)
 local world = workspaceBeachObby:FindFirstChild(WorldConfig.Root.World)
 assert(world ~= nil and world:IsA("Model"), "Workspace.BeachObby.World must be a Model")
 
+local movingHazardEntries = {}
+
+for _, entry in WorldConfig.MovingHazards.Runners do
+	table.insert(movingHazardEntries, entry)
+end
+
+for _, entry in WorldConfig.MovingHazards.Sharks do
+	table.insert(movingHazardEntries, entry)
+end
+
 local movingHazards = MovingHazardService.new({
 	WorldRoot = world,
-	ConfigEntries = WorldConfig.MovingHazards.Runners,
+	ConfigEntries = movingHazardEntries,
 	HeartbeatSignal = RunService.Heartbeat,
 	Now = function()
 		return Workspace:GetServerTimeNow()

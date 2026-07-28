@@ -122,14 +122,40 @@ local Runner03 = table.freeze({
 	PhaseOffset = 0.55,
 })
 
+local Shark01 = table.freeze({
+	Id = "Shark01",
+	SceneName = "Scene02_Water",
+	ModelName = "Shark01",
+	StartMarkerName = "Shark01_Start",
+	EndMarkerName = "Shark01_End",
+	OneWayDurationSeconds = 6,
+	PhaseOffset = 0.1,
+})
+
+local Shark02 = table.freeze({
+	Id = "Shark02",
+	SceneName = "Scene02_Water",
+	ModelName = "Shark02",
+	StartMarkerName = "Shark02_Start",
+	EndMarkerName = "Shark02_End",
+	OneWayDurationSeconds = 6,
+	PhaseOffset = 0.35,
+})
+
 local Runners = table.freeze({
 	Runner01,
 	Runner02,
 	Runner03,
 })
 
+local Sharks = table.freeze({
+	Shark01,
+	Shark02,
+})
+
 local MovingHazards = table.freeze({
 	Runners = Runners,
+	Sharks = Sharks,
 })
 
 return table.freeze({

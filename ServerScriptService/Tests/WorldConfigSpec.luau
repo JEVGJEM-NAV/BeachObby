@@ -296,6 +296,111 @@ TestRunner.test("WorldConfig rejects changing or extending MovingHazards", funct
 	TestRunner.assertTrue((WorldConfig.MovingHazards :: any).NewValue == nil)
 end)
 
+TestRunner.test("WorldConfig MovingHazards defines two frozen sharks", function()
+	local sharks = WorldConfig.MovingHazards.Sharks
+	TestRunner.assertTrue(typeof(sharks) == "table")
+	TestRunner.assertTrue(table.isfrozen(sharks))
+	TestRunner.assertEqual(#sharks, 2)
+
+	for _, entry in sharks do
+		TestRunner.assertTrue(table.isfrozen(entry))
+	end
+end)
+
+TestRunner.test("WorldConfig shark entries retain their stable contract", function()
+	local expected = {
+		{
+			Id = "Shark01",
+			SceneName = "Scene02_Water",
+			ModelName = "Shark01",
+			StartMarkerName = "Shark01_Start",
+			EndMarkerName = "Shark01_End",
+			OneWayDurationSeconds = 6,
+			PhaseOffset = 0.1,
+		},
+		{
+			Id = "Shark02",
+			SceneName = "Scene02_Water",
+			ModelName = "Shark02",
+			StartMarkerName = "Shark02_Start",
+			EndMarkerName = "Shark02_End",
+			OneWayDurationSeconds = 6,
+			PhaseOffset = 0.35,
+		},
+	}
+
+	for index, contract in expected do
+		local entry = WorldConfig.MovingHazards.Sharks[index]
+		for fieldName, expectedValue in contract do
+			TestRunner.assertEqual(entry[fieldName], expectedValue)
+		end
+	end
+end)
+
+TestRunner.test("WorldConfig moving hazard identities are unique across runners and sharks", function()
+	local ids: { string } = {}
+	local modelNames: { string } = {}
+	for _, entries in { WorldConfig.MovingHazards.Runners, WorldConfig.MovingHazards.Sharks } do
+		for _, entry in entries do
+			table.insert(ids, entry.Id)
+			table.insert(modelNames, entry.ModelName)
+		end
+	end
+	assertArrayUnique(ids)
+	assertArrayUnique(modelNames)
+end)
+
+TestRunner.test("WorldConfig shark marker names are non-empty and unique", function()
+	local markerNames: { string } = {}
+	for _, entry in WorldConfig.MovingHazards.Sharks do
+		for _, markerName in { entry.StartMarkerName, entry.EndMarkerName } do
+			TestRunner.assertTrue(typeof(markerName) == "string")
+			TestRunner.assertTrue(markerName ~= "")
+			table.insert(markerNames, markerName)
+		end
+	end
+	assertArrayUnique(markerNames)
+end)
+
+TestRunner.test("WorldConfig shark timing is valid and asynchronous", function()
+	local first = WorldConfig.MovingHazards.Sharks[1]
+	local second = WorldConfig.MovingHazards.Sharks[2]
+	for _, entry in WorldConfig.MovingHazards.Sharks do
+		TestRunner.assertTrue(entry.OneWayDurationSeconds > 0)
+		TestRunner.assertTrue(entry.PhaseOffset >= 0)
+		TestRunner.assertTrue(entry.PhaseOffset < 1)
+	end
+	TestRunner.assertTrue(
+		first.PhaseOffset ~= second.PhaseOffset or first.OneWayDurationSeconds ~= second.OneWayDurationSeconds
+	)
+	if first.OneWayDurationSeconds == second.OneWayDurationSeconds then
+		local phaseDifference = (second.PhaseOffset - first.PhaseOffset) % 1
+		TestRunner.assertTrue(math.abs(phaseDifference - 0.5) > 0.001)
+	end
+end)
+
+TestRunner.test("WorldConfig rejects changing or extending sharks", function()
+	local sharks = WorldConfig.MovingHazards.Sharks
+	TestRunner.assertError(function()
+		sharks[1].PhaseOffset = 0
+	end)
+	TestRunner.assertError(function()
+		(sharks :: any)[3] = sharks[1]
+	end)
+	TestRunner.assertEqual(sharks[1].PhaseOffset, 0.1)
+	TestRunner.assertEqual(sharks[2].PhaseOffset, 0.35)
+	TestRunner.assertEqual(#sharks, 2)
+end)
+
+TestRunner.test("WorldConfig runner timing remains unchanged", function()
+	local expectedPhases = { 0, 0.2, 0.55 }
+	for index, entry in WorldConfig.MovingHazards.Runners do
+		TestRunner.assertEqual(entry.Id, string.format("Runner%02d", index))
+		TestRunner.assertEqual(entry.OneWayDurationSeconds, 6)
+		TestRunner.assertEqual(entry.PhaseOffset, expectedPhases[index])
+	end
+end)
+
 TestRunner.test("WorldConfig Water table is frozen", function()
 	TestRunner.assertTrue(table.isfrozen(WorldConfig.Water))
 end)
