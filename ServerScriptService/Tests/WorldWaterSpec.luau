@@ -710,18 +710,28 @@ TestRunner.test("Water shark dangerous probes are bitten while both safe sides r
 	end
 end)
 
-TestRunner.test("Water retains its hazards within Phase 2.6 World counts", function()
+TestRunner.test("Water retains approved Phase 2.7 world Hazard counts", function()
 	local sceneHazards = 0
 	for _, descendant in scene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then sceneHazards += 1 end
 	end
 	TestRunner.assertEqual(sceneHazards, 3)
+	local palmHazards = 0
+	for _, descendant in world[WorldConfig.Scenes.PalmFinish]:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then palmHazards += 1 end
+	end
+	TestRunner.assertEqual(palmHazards, 1)
 
 	local worldHazards = 0
 	for _, descendant in world:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then worldHazards += 1 end
 	end
-	TestRunner.assertEqual(worldHazards, 8)
+	TestRunner.assertEqual(worldHazards, 9)
+	local beachHazards = 0
+	for _, descendant in beachObby:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then beachHazards += 1 end
+	end
+	TestRunner.assertEqual(beachHazards, 10)
 end)
 
 TestRunner.test("Water scene contains no nested scripts", function()
@@ -749,17 +759,38 @@ TestRunner.test("HotBeach retains exactly four active hazards", function()
 	TestRunner.assertEqual(count, 4)
 end)
 
-TestRunner.test("Water regression keeps future Palm scene passive", function()
-	for _, sceneName in { WorldConfig.Scenes.PalmFinish } do
-		for _, descendant in world[sceneName]:GetDescendants() do
-			assertNoTagsOrAttributes(descendant)
-			TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
-			if descendant:IsA("BasePart") then
-				TestRunner.assertTrue(descendant.Anchored)
-				TestRunner.assertFalse(descendant.CanTouch)
-			end
+TestRunner.test("Water regression keeps Phase 2.7 Palm markers passive except PalmFallCatch", function()
+	local palmScene = world[WorldConfig.Scenes.PalmFinish]
+	local palmFallCatch = palmScene.Hazards[WorldConfig.PalmFinish.PalmFallCatch]
+	local hazardCount = 0
+	for _, descendant in palmScene:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
+			hazardCount += 1
+			TestRunner.assertEqual(descendant, palmFallCatch)
 		end
+		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
+		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
+		if descendant == palmFallCatch then
+			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 1)
+			TestRunner.assertTrue((descendant :: BasePart).CanTouch)
+		else
+			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 0)
+			if descendant:IsA("BasePart") then TestRunner.assertFalse(descendant.CanTouch) end
+		end
+		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant.Anchored) end
 	end
+	TestRunner.assertEqual(hazardCount, 1)
+	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
+	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(next(checkpoint:GetAttributes()), nil)
+	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
+		local marker = palmScene.Coins[name]
+		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
+		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	end
+	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishPlaceholder]
+	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
 end)
 
 TestRunner.test("VerticalSlice retains its accepted active fixture", function()

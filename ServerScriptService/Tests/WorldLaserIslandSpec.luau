@@ -322,19 +322,32 @@ TestRunner.test("LaserIsland produces the approved Hazard counts", function()
 	TestRunner.assertEqual(countHazards(world.Scene01_HotBeach), 4)
 	TestRunner.assertEqual(countHazards(scene02), 3)
 	TestRunner.assertEqual(countHazards(scene), 1)
-	TestRunner.assertEqual(countHazards(world), 8)
-	TestRunner.assertEqual(countHazards(beachObby), 9)
+	TestRunner.assertEqual(countHazards(scene04), 1)
+	TestRunner.assertEqual(countHazards(world), 9)
+	TestRunner.assertEqual(countHazards(beachObby), 10)
 end)
 
-TestRunner.test("LaserIsland does not begin Phase 2.7 or Phase 2.8", function()
-	for _, name in { "PalmTree", "SpiralSteps", "SummitPlatform", "PalmFallCatch" } do
-		TestRunner.assertTrue(scene04:FindFirstChild(name, true) == nil)
+TestRunner.test("LaserIsland accepts Phase 2.7 Palm geometry without beginning Phase 2.8", function()
+	expectChild(scene04.Geometry, WorldConfig.PalmFinish.PalmTree, "Model")
+	expectChild(scene04.Geometry, WorldConfig.PalmFinish.Spiral.FolderName, "Folder")
+	expectChild(scene04.Geometry, WorldConfig.PalmFinish.SummitPlatform, "Part")
+	expectChild(scene04.Hazards, WorldConfig.PalmFinish.PalmFallCatch, "Part")
+	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
+		local marker = expectChild(scene04.Coins, name, "Part")
+		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
+		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
 	end
+	local finish = expectChild(scene04.Triggers, WorldConfig.PalmFinish.FinishPlaceholder, "Part")
+	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
 	for _, marker in scene.Coins:GetChildren() do
 		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
 	end
 	local checkpoint = scene.Triggers.PalmBaseCheckpoint
 	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointId") == nil)
+	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointOrder") == nil)
+	TestRunner.assertTrue(checkpoint:GetAttribute("RespawnOffset") == nil)
 end)
 
 TestRunner.test("LaserIsland and World remain inside Baseplate", function()

@@ -602,4 +602,116 @@ TestRunner.test("WorldConfig rejects rotating and LaserIsland mutation", functio
 	TestRunner.assertEqual(WorldConfig.LaserIsland.CoinIds[1], "LaserIslandCoin01")
 end)
 
+TestRunner.test("WorldConfig PalmFinish tables are frozen", function()
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish.Spiral))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish.CoinMarkerNames))
+end)
+
+TestRunner.test("WorldConfig PalmFinish retains the approved stable names", function()
+	local palmFinish = WorldConfig.PalmFinish
+	local expected = {
+		EntryPlatform = "EntryPlatform",
+		SummitPlatform = "SummitPlatform",
+		PalmTree = "PalmTree",
+		Trunk = "Trunk",
+		TrunkCore = "TrunkCore",
+		CrownNeck = "CrownNeck",
+		CrownHub = "CrownHub",
+		Fronds = "Fronds",
+		FrondPrefix = "Frond",
+		PalmFallCatch = "PalmFallCatch",
+		FinishPlaceholder = "FinishPlaceholder",
+	}
+	for name, value in expected do TestRunner.assertEqual(palmFinish[name], value) end
+	TestRunner.assertEqual(palmFinish.Spiral.FolderName, "SpiralSteps")
+	TestRunner.assertEqual(palmFinish.Spiral.StepPrefix, "Step")
+end)
+
+TestRunner.test("WorldConfig PalmFinish defines the approved frond contract", function()
+	local palmFinish = WorldConfig.PalmFinish
+	TestRunner.assertEqual(palmFinish.FrondPrefix, "Frond")
+	TestRunner.assertEqual(palmFinish.FrondCount, 8)
+	for index = 1, palmFinish.FrondCount do
+		TestRunner.assertEqual(string.format("%s%02d", palmFinish.FrondPrefix, index), string.format("Frond%02d", index))
+	end
+	TestRunner.assertTrue((palmFinish :: any).FrondNames == nil)
+end)
+
+TestRunner.test("WorldConfig PalmFinish defines three unique passive coin marker names", function()
+	local names = WorldConfig.PalmFinish.CoinMarkerNames
+	TestRunner.assertTrue(table.isfrozen(names))
+	TestRunner.assertEqual(#names, 3)
+	assertArrayUnique(names)
+	for index = 1, 3 do
+		TestRunner.assertEqual(names[index], string.format("PalmCoin%02d", index))
+		TestRunner.assertTrue(string.match(names[index], "^PalmCoin%d%d$") ~= nil)
+	end
+	TestRunner.assertTrue((WorldConfig.PalmFinish :: any).CoinIds == nil)
+end)
+
+TestRunner.test("WorldConfig PalmFinish spiral tuning is deterministic", function()
+	local spiral = WorldConfig.PalmFinish.Spiral
+	local expected = {
+		FolderName = "SpiralSteps",
+		StepPrefix = "Step",
+		StepCount = 73,
+		CenterX = 164,
+		CenterZ = -184,
+		InitialAngleRadians = math.pi,
+		AngularIncrementRadians = math.pi / 12,
+		Radius = 9.5,
+		FirstCenterY = 2.125,
+		VerticalRise = 0.5,
+		StepWidth = 5.5,
+		StepHeight = 0.75,
+		StepDepth = 4,
+	}
+	for name, value in expected do TestRunner.assertEqual(spiral[name], value) end
+	local intervals = spiral.StepCount - 1
+	local revolutions = intervals * spiral.AngularIncrementRadians / (2 * math.pi)
+	local totalRise = intervals * spiral.VerticalRise
+	TestRunner.assertEqual(intervals, 72)
+	TestRunner.assertEqual(revolutions, 3)
+	TestRunner.assertEqual(totalRise, 36)
+	for _, derivedName in { "Intervals", "Revolutions", "TotalRise" } do
+		TestRunner.assertTrue((spiral :: any)[derivedName] == nil)
+	end
+end)
+
+TestRunner.test("WorldConfig PalmFinish contract contains only frozen data values", function()
+	local function inspect(value: any)
+		local valueType = typeof(value)
+		if valueType == "table" then
+			TestRunner.assertTrue(table.isfrozen(value))
+			for key, child in value do
+				local keyType = typeof(key)
+				TestRunner.assertTrue(keyType == "string" or keyType == "number")
+				inspect(child)
+			end
+			return
+		end
+		TestRunner.assertTrue(valueType == "string" or valueType == "number" or valueType == "boolean")
+		TestRunner.assertFalse(valueType == "Instance")
+		TestRunner.assertFalse(valueType == "CFrame")
+		TestRunner.assertFalse(valueType == "Vector3")
+		TestRunner.assertFalse(valueType == "function")
+		TestRunner.assertFalse(valueType == "thread")
+		TestRunner.assertFalse(valueType == "userdata")
+	end
+	inspect(WorldConfig.PalmFinish)
+end)
+
+TestRunner.test("WorldConfig rejects PalmFinish mutation", function()
+	local palmFinish = WorldConfig.PalmFinish
+	TestRunner.assertError(function() palmFinish.EntryPlatform = "Changed" end)
+	TestRunner.assertError(function() palmFinish.Spiral.Radius = 1 end)
+	TestRunner.assertError(function() palmFinish.CoinMarkerNames[1] = "Changed" end)
+	TestRunner.assertError(function() (palmFinish :: any).NewValue = "Changed" end)
+	TestRunner.assertEqual(palmFinish.EntryPlatform, "EntryPlatform")
+	TestRunner.assertEqual(palmFinish.Spiral.Radius, 9.5)
+	TestRunner.assertEqual(palmFinish.CoinMarkerNames[1], "PalmCoin01")
+	TestRunner.assertTrue((palmFinish :: any).NewValue == nil)
+end)
+
 return true

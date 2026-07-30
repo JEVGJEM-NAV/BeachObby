@@ -110,6 +110,45 @@ local LaserIsland = table.freeze({
 	PalmBaseCheckpointId = "PalmBase",
 })
 
+local PalmCoinMarkerNames = table.freeze({
+	"PalmCoin01",
+	"PalmCoin02",
+	"PalmCoin03",
+})
+
+local PalmFinishSpiral = table.freeze({
+	FolderName = "SpiralSteps",
+	StepPrefix = "Step",
+	StepCount = 73,
+	CenterX = 164,
+	CenterZ = -184,
+	InitialAngleRadians = math.pi,
+	AngularIncrementRadians = math.pi / 12,
+	Radius = 9.5,
+	FirstCenterY = 2.125,
+	VerticalRise = 0.5,
+	StepWidth = 5.5,
+	StepHeight = 0.75,
+	StepDepth = 4,
+})
+
+local PalmFinish = table.freeze({
+	EntryPlatform = "EntryPlatform",
+	SummitPlatform = "SummitPlatform",
+	PalmTree = "PalmTree",
+	Trunk = "Trunk",
+	TrunkCore = "TrunkCore",
+	CrownNeck = "CrownNeck",
+	CrownHub = "CrownHub",
+	Fronds = "Fronds",
+	FrondPrefix = "Frond",
+	FrondCount = 8,
+	Spiral = PalmFinishSpiral,
+	PalmFallCatch = "PalmFallCatch",
+	CoinMarkerNames = PalmCoinMarkerNames,
+	FinishPlaceholder = "FinishPlaceholder",
+})
+
 local Runner01 = table.freeze({
 	Id = "Runner01",
 	SceneName = "Scene01_HotBeach",
@@ -203,6 +242,7 @@ return table.freeze({
 	HotBeach = HotBeach,
 	Water = Water,
 	LaserIsland = LaserIsland,
+	PalmFinish = PalmFinish,
 	MovingHazards = MovingHazards,
 	RotatingHazards = RotatingHazards,
 })

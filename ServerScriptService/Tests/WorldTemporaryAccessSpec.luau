@@ -2,8 +2,10 @@
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
+local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 local TestRunner = require(script.Parent.TestRunner)
 
 local beachObby = workspace:WaitForChild("BeachObby")
@@ -158,9 +160,11 @@ TestRunner.test("Temporary access retains deep water geometry", function()
 	TestRunner.assertTrue((killPlane.Size - Vector3.new(40, 0.3, 56)).Magnitude <= 0.001)
 end)
 
-TestRunner.test("Temporary access retains Phase 2.6 Hazard counts", function()
+TestRunner.test("Temporary access retains approved Phase 2.7 Hazard counts", function()
 	TestRunner.assertEqual(countHazards(scene02), 3)
-	TestRunner.assertEqual(countHazards(beachObby.World), 8)
+	TestRunner.assertEqual(countHazards(beachObby.World[WorldConfig.Scenes.PalmFinish]), 1)
+	TestRunner.assertEqual(countHazards(beachObby.World), 9)
+	TestRunner.assertEqual(countHazards(beachObby), 10)
 end)
 
 TestRunner.test("Temporary access ends only at Scene01 StartPlatform", function()
@@ -172,13 +176,35 @@ TestRunner.test("Temporary access ends only at Scene01 StartPlatform", function(
 	end
 end)
 
-TestRunner.test("Temporary access does not introduce Phase 2.7 objects", function()
-	for _, sceneName in { "Scene04_PalmFinish" } do
-		for _, descendant in beachObby.World[sceneName]:GetDescendants() do
-			TestRunner.assertFalse(CollectionService:HasTag(descendant, RunConfig.Tags.Hazard))
-			TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
-		end
+TestRunner.test("Temporary access remains isolated from Phase 2.7 and Phase 2.8 gameplay", function()
+	for _, descendant in { bridge, table.unpack(bridge:GetDescendants()) } do
+		TestRunner.assertEqual(#CollectionService:GetTags(descendant), 0)
+		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
 	end
+	local palmScene = beachObby.World[WorldConfig.Scenes.PalmFinish]
+	local palmFallCatch = palmScene.Hazards[WorldConfig.PalmFinish.PalmFallCatch]
+	local hazardCount = 0
+	for _, descendant in palmScene:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
+			hazardCount += 1
+			TestRunner.assertEqual(descendant, palmFallCatch)
+		end
+		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
+	end
+	TestRunner.assertEqual(hazardCount, 1)
+	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
+		local marker = palmScene.Coins[name]
+		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
+		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	end
+	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishPlaceholder]
+	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
+	local checkpoint = beachObby.World[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
+	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointId") == nil)
+	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointOrder") == nil)
+	TestRunner.assertTrue(checkpoint:GetAttribute("RespawnOffset") == nil)
 end)
 
 return true

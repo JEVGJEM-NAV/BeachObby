@@ -353,19 +353,40 @@ TestRunner.test("HotBeach hierarchy has no duplicate immediate child names", fun
 	end
 end)
 
-TestRunner.test("HotBeach regression keeps future Palm scene passive", function()
-	for _, sceneName in { "Scene04_PalmFinish" } do
-		local otherScene = expectChild(world, sceneName, "Model")
-		for _, descendant in otherScene:GetDescendants() do
-			assertNoTagsOrAttributes(descendant)
-			TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
-			TestRunner.assertFalse(descendant:IsA("SpawnLocation"))
-			if descendant:IsA("BasePart") then
-				TestRunner.assertTrue(descendant.Anchored)
-				TestRunner.assertFalse(descendant.CanTouch)
-			end
+TestRunner.test("HotBeach regression accepts Phase 2.7 Palm hazard and keeps Phase 2.8 inactive", function()
+	local palmScene = expectChild(world, WorldConfig.Scenes.PalmFinish, "Model")
+	local palmFallCatch = expectChild(palmScene.Hazards, WorldConfig.PalmFinish.PalmFallCatch, "Part")
+	local hazardCount = 0
+	for _, descendant in palmScene:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
+			hazardCount += 1
+			TestRunner.assertEqual(descendant, palmFallCatch)
 		end
+		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
+		TestRunner.assertFalse(descendant:IsA("SpawnLocation"))
+		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
+		if descendant == palmFallCatch then
+			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 1)
+			TestRunner.assertTrue(CollectionService:HasTag(descendant, RunConfig.Tags.Hazard))
+			TestRunner.assertTrue((descendant :: BasePart).CanTouch)
+		else
+			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 0)
+			if descendant:IsA("BasePart") then TestRunner.assertFalse(descendant.CanTouch) end
+		end
+		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant.Anchored) end
 	end
+	TestRunner.assertEqual(hazardCount, 1)
+	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
+	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(next(checkpoint:GetAttributes()), nil)
+	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
+		local marker = palmScene.Coins[name]
+		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
+		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	end
+	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishPlaceholder]
+	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
 end)
 
 TestRunner.test("VerticalSlice retains its accepted active objects", function()
@@ -423,12 +444,15 @@ TestRunner.test("World remains horizontally inside and above Baseplate", functio
 	TestRunner.assertTrue(worldBounds.min.Y >= baseplateBounds.max.Y - 0.001)
 end)
 
-TestRunner.test("World scene anchor positions retain the accepted layout", function()
+TestRunner.test("World scene anchor positions retain the accepted Phase 2.7 layout", function()
 	local anchors = {
 		Scene01_HotBeach = { part = world.Scene01_HotBeach.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -22) },
 		Scene02_Water = { part = world.Scene02_Water.Geometry.SceneFootprint, position = Vector3.new(111, 0.5, -107) },
 		Scene03_LaserIsland = { part = world.Scene03_LaserIsland.Geometry.IslandBase, position = Vector3.new(111, 1.5, -184) },
-		Scene04_PalmFinish = { part = world.Scene04_PalmFinish.Geometry.SceneFootprint, position = Vector3.new(214.5, 0.5, -184) },
+		Scene04_PalmFinish = {
+			part = expectChild(world.Scene04_PalmFinish.Geometry, WorldConfig.PalmFinish.EntryPlatform, "Part"),
+			position = Vector3.new(151, 1.5, -184),
+		},
 	}
 
 	for sceneName, contract in anchors do

@@ -2,7 +2,7 @@
 
 local RunService = game:GetService("RunService")
 
-if not RunService:IsStudio() or game:GetAttribute("RunAutomatedTests") ~= true then
+if not RunService:IsStudio() or workspace:GetAttribute("RunAutomatedTests") ~= true then
 	return
 end
 
@@ -23,5 +23,6 @@ require(script.Parent.MovingHazardServiceSpec)
 require(script.Parent.RotatingHazardServiceSpec)
 require(script.Parent.WorldWaterSpec)
 require(script.Parent.WorldLaserIslandSpec)
+require(script.Parent.WorldPalmFinishSpec)
 require(script.Parent.WorldTemporaryAccessSpec)
 TestRunner.run()
