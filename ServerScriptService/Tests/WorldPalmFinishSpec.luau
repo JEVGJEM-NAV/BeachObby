@@ -76,20 +76,6 @@ local function getAabb(part: BasePart): Bounds
 	return { min = min, max = max }
 end
 
-local function instanceAabb(root: Instance): Bounds
-	local min = Vector3.new(math.huge, math.huge, math.huge)
-	local max = Vector3.new(-math.huge, -math.huge, -math.huge)
-	local parts = if root:IsA("BasePart") then { root } else root:GetDescendants()
-	for _, descendant in parts do
-		if descendant:IsA("BasePart") then
-			local bounds = getAabb(descendant)
-			min = Vector3.new(math.min(min.X, bounds.min.X), math.min(min.Y, bounds.min.Y), math.min(min.Z, bounds.min.Z))
-			max = Vector3.new(math.max(max.X, bounds.max.X), math.max(max.Y, bounds.max.Y), math.max(max.Z, bounds.max.Z))
-		end
-	end
-	return { min = min, max = max }
-end
-
 local function aabbsIntersect(first: Bounds, second: Bounds): boolean
 	return first.min.X < second.max.X and first.max.X > second.min.X
 		and first.min.Y < second.max.Y and first.max.Y > second.min.Y
@@ -134,6 +120,15 @@ local function assertNoTagsOrAttributes(instance: Instance)
 	TestRunner.assertEqual(next(instance:GetAttributes()), nil, instance:GetFullName() .. " must be attribute-free")
 end
 
+local function assertOnlyEngineTouchChildren(instance: Instance)
+	for _, child in instance:GetChildren() do
+		TestRunner.assertTrue(
+			child:IsA("TouchTransmitter"),
+			instance:GetFullName() .. " has unexpected child " .. child:GetFullName()
+		)
+	end
+end
+
 local function assertIdentity(cframe: CFrame)
 	assertCFrameClose(cframe, CFrame.new(cframe.Position))
 end
@@ -152,14 +147,19 @@ TestRunner.test("PalmFinish folders contain the exact approved children", functi
 	assertExactChildren(scene.Geometry, {
 		[palmConfig.EntryPlatform] = "Part",
 		[palmConfig.SummitPlatform] = "Part",
+		[palmConfig.HotSandIsland] = "Part",
+		[palmConfig.HotSandTint] = "Part",
 		[palmConfig.PalmTree] = "Model",
 		[palmConfig.Spiral.FolderName] = "Folder",
 	})
-	assertExactChildren(scene.Hazards, { [palmConfig.PalmFallCatch] = "Part" })
+	assertExactChildren(scene.Hazards, {
+		[palmConfig.PalmFallCatch] = "Part",
+		[palmConfig.PalmUpperFallCatch] = "Part",
+	})
 	local expectedCoins: { [string]: string } = {}
-	for _, name in palmConfig.CoinMarkerNames do expectedCoins[name] = "Part" end
+	for _, name in palmConfig.CoinIds do expectedCoins[name] = "Part" end
 	assertExactChildren(scene.Coins, expectedCoins)
-	assertExactChildren(scene.Triggers, { [palmConfig.FinishPlaceholder] = "Part" })
+	assertExactChildren(scene.Triggers, { [palmConfig.FinishLine] = "Part" })
 end)
 
 TestRunner.test("PalmFinish PalmTree has the exact Trunk and Fronds hierarchy", function()
@@ -403,15 +403,16 @@ end)
 TestRunner.test("PalmFinish PalmFallCatch has the exact universal Hazard contract", function()
 	local catch = scene.Hazards[palmConfig.PalmFallCatch] :: Part
 	TestRunner.assertEqual(catch.Shape, Enum.PartType.Block)
-	assertVectorClose(catch.Position, Vector3.new(164, -4.75, -184))
-	assertVectorClose(catch.Size, Vector3.new(30, 0.5, 30))
+	assertVectorClose(catch.Position, Vector3.new(164, 0.7, -184))
+	assertVectorClose(catch.Size, Vector3.new(76, 0.3, 76))
 	local bounds = getAabb(catch)
-	assertVectorClose(bounds.min, Vector3.new(149, -5, -199))
-	assertVectorClose(bounds.max, Vector3.new(179, -4.5, -169))
+	assertVectorClose(bounds.min, Vector3.new(126, 0.55, -222))
+	assertVectorClose(bounds.max, Vector3.new(202, 0.85, -146))
 	TestRunner.assertTrue(catch.Anchored)
-	TestRunner.assertFalse(catch.CanCollide)
+	TestRunner.assertTrue(catch.CanCollide)
 	TestRunner.assertTrue(catch.CanTouch)
 	TestRunner.assertTrue(catch.CanQuery)
+	TestRunner.assertFalse(catch.CastShadow)
 	TestRunner.assertEqual(#CollectionService:GetTags(catch), 1)
 	TestRunner.assertTrue(CollectionService:HasTag(catch, RunConfig.Tags.Hazard))
 	TestRunner.assertEqual(next(catch:GetAttributes()), nil)
@@ -426,6 +427,23 @@ TestRunner.test("PalmFinish PalmFallCatch has the exact universal Hazard contrac
 			)
 		)
 	end
+	local upperCatch = scene.Hazards[palmConfig.PalmUpperFallCatch] :: Part
+	TestRunner.assertEqual(upperCatch.Shape, Enum.PartType.Block)
+	assertCFrameClose(upperCatch.CFrame, CFrame.new(145.5, 27.2, -184))
+	assertVectorClose(upperCatch.Size, Vector3.new(9, 22.4, 64))
+	local upperBounds = getAabb(upperCatch)
+	assertVectorClose(upperBounds.min, Vector3.new(141, 16, -216))
+	assertVectorClose(upperBounds.max, Vector3.new(150, 38.4, -152))
+	TestRunner.assertTrue(upperCatch.Anchored and upperCatch.CanTouch and upperCatch.CanQuery)
+	TestRunner.assertFalse(upperCatch.CanCollide)
+	TestRunner.assertFalse(upperCatch.CastShadow)
+	TestRunner.assertEqual(upperCatch.Transparency, catch.Transparency)
+	TestRunner.assertEqual(upperCatch.Material, catch.Material)
+	TestRunner.assertEqual(upperCatch.Color, catch.Color)
+	TestRunner.assertEqual(#CollectionService:GetTags(upperCatch), 1)
+	TestRunner.assertTrue(CollectionService:HasTag(upperCatch, RunConfig.Tags.Hazard))
+	TestRunner.assertEqual(next(upperCatch:GetAttributes()), nil)
+	assertOnlyEngineTouchChildren(upperCatch)
 end)
 
 TestRunner.test("PalmFinish PalmFallCatch covers the complete spiral XZ envelope", function()
@@ -444,24 +462,26 @@ TestRunner.test("PalmFinish PalmFallCatch stays clear of the valid route and nei
 	TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(scene.Geometry[palmConfig.EntryPlatform] :: BasePart)))
 	TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(scene.Geometry[palmConfig.SummitPlatform] :: BasePart)))
 	for index = 1, spiralConfig.StepCount do TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(orderedStep(index)))) end
-	TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(scene03.Geometry[WorldConfig.LaserIsland.IslandBase] :: BasePart)))
+	local islandBounds = getAabb(scene03.Geometry[WorldConfig.LaserIsland.IslandBase] :: BasePart)
+	TestRunner.assertTrue(xzOverlap(catchBounds, islandBounds))
+	TestRunner.assertTrue(math.abs(islandBounds.max.Y - catchBounds.max.Y - 1.15) <= POSITION_TOLERANCE)
 	local laser = scene03.Hazards[WorldConfig.LaserIsland.LaserAssembly][WorldConfig.LaserIsland.LaserBar] :: BasePart
 	TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(laser)))
-	local center = scene03.Geometry[WorldConfig.LaserIsland.CenterSphere].Position
-	local laserEnvelopeRadius = laser.Size.X / 2 + laser.Size.Z / 2
-	TestRunner.assertTrue(catchBounds.min.X - (center.X + laserEnvelopeRadius) > 0)
+	TestRunner.assertTrue(getAabb(laser).min.Y - catchBounds.max.Y > 0)
 end)
 
-TestRunner.test("PalmFinish PalmFallCatch has only the accepted TrunkCore boundary overlap", function()
+TestRunner.test("PalmFinish PalmFallCatch has only the accepted sand and TrunkCore overlaps", function()
 	local catch = scene.Hazards[palmConfig.PalmFallCatch] :: BasePart
 	local catchBounds = getAabb(catch)
 	local trunk = scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.TrunkCore] :: BasePart
 	local trunkBounds = getAabb(trunk)
 	local overlapY = math.min(catchBounds.max.Y, trunkBounds.max.Y) - math.max(catchBounds.min.Y, trunkBounds.min.Y)
 	TestRunner.assertTrue(aabbsIntersect(catchBounds, trunkBounds))
-	TestRunner.assertTrue(math.abs(overlapY - 0.5) <= POSITION_TOLERANCE)
+	TestRunner.assertTrue(math.abs(overlapY - 0.3) <= POSITION_TOLERANCE)
+	local hotSand = scene.Geometry[palmConfig.HotSandIsland] :: BasePart
+	TestRunner.assertTrue(aabbsIntersect(catchBounds, getAabb(hotSand)))
 	for _, descendant in scene:GetDescendants() do
-		if descendant:IsA("BasePart") and descendant ~= catch and descendant ~= trunk then
+		if descendant:IsA("BasePart") and descendant ~= catch and descendant ~= trunk and descendant ~= hotSand then
 			TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(descendant)), "Unexpected PalmFallCatch overlap with " .. descendant:GetFullName())
 		end
 	end
@@ -469,13 +489,13 @@ end)
 
 TestRunner.test("PalmFinish Coins contains exactly three unique configured markers", function()
 	local expected: { [string]: string } = {}
-	for _, name in palmConfig.CoinMarkerNames do expected[name] = "Part" end
+	for _, name in palmConfig.CoinIds do expected[name] = "Part" end
 	assertExactChildren(scene.Coins, expected)
 end)
 
 TestRunner.test("PalmFinish coin markers derive from Steps 12 37 and 62", function()
 	for markerIndex, stepIndex in { 12, 37, 62 } do
-		local marker = scene.Coins[palmConfig.CoinMarkerNames[markerIndex]] :: BasePart
+		local marker = scene.Coins[palmConfig.CoinIds[markerIndex]] :: BasePart
 		local step = orderedStep(stepIndex)
 		local center = Vector3.new(spiralConfig.CenterX, 0, spiralConfig.CenterZ)
 		local stepHorizontal = Vector3.new(step.Position.X, 0, step.Position.Z)
@@ -488,31 +508,30 @@ TestRunner.test("PalmFinish coin markers derive from Steps 12 37 and 62", functi
 	end
 end)
 
-TestRunner.test("PalmFinish coin markers are passive and clear of route geometry", function()
+TestRunner.test("PalmFinish coins are active and clear of route geometry", function()
 	local trunkBounds = getAabb(scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.TrunkCore] :: BasePart)
 	local summitBounds = getAabb(scene.Geometry[palmConfig.SummitPlatform] :: BasePart)
 	for markerIndex, stepIndex in { 12, 37, 62 } do
-		local marker = scene.Coins[palmConfig.CoinMarkerNames[markerIndex]] :: Part
-		TestRunner.assertEqual(marker.Shape, Enum.PartType.Ball)
-		assertVectorClose(marker.Size, Vector3.new(1.5, 1.5, 1.5))
-		TestRunner.assertEqual(marker.Material, Enum.Material.Neon)
-		assertVectorClose(Vector3.new(marker.Color.R, marker.Color.G, marker.Color.B), Vector3.new(1, 1, 0))
-		TestRunner.assertTrue(marker.Anchored)
-		TestRunner.assertFalse(marker.CanCollide)
-		TestRunner.assertFalse(marker.CanTouch)
-		TestRunner.assertFalse(marker.CanQuery)
-		assertNoTagsOrAttributes(marker)
-		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
-		TestRunner.assertEqual(#marker:GetChildren(), 0)
-		local bounds = getAabb(marker)
+		local coin = scene.Coins[palmConfig.CoinIds[markerIndex]] :: Part
+		TestRunner.assertEqual(coin.Shape, Enum.PartType.Ball)
+		assertVectorClose(coin.Size, Vector3.new(1.5, 1.5, 1.5))
+		TestRunner.assertEqual(coin.Material, Enum.Material.Neon)
+		assertVectorClose(Vector3.new(coin.Color.R, coin.Color.G, coin.Color.B), Vector3.new(1, 1, 0))
+		TestRunner.assertTrue(coin.Anchored and coin.CanTouch and coin.CanQuery)
+		TestRunner.assertFalse(coin.CanCollide)
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(#CollectionService:GetTags(coin), 1)
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), coin.Name)
+		assertOnlyEngineTouchChildren(coin)
+		local bounds = getAabb(coin)
 		TestRunner.assertFalse(aabbsIntersect(bounds, getAabb(orderedStep(stepIndex))))
 		TestRunner.assertFalse(aabbsIntersect(bounds, trunkBounds))
 		TestRunner.assertFalse(aabbsIntersect(bounds, summitBounds))
 	end
 end)
 
-TestRunner.test("PalmFinish FinishPlaceholder has the approved summit-supported geometry", function()
-	local finish = scene.Triggers[palmConfig.FinishPlaceholder] :: Part
+TestRunner.test("PalmFinish FinishLine has the approved summit-supported geometry", function()
+	local finish = scene.Triggers[palmConfig.FinishLine] :: Part
 	local summit = scene.Geometry[palmConfig.SummitPlatform] :: BasePart
 	assertVectorClose(finish.Position, Vector3.new(146.25, 41, -188.25))
 	assertVectorClose(finish.Size, Vector3.new(3, 4, 6))
@@ -526,23 +545,21 @@ TestRunner.test("PalmFinish FinishPlaceholder has the approved summit-supported 
 	TestRunner.assertTrue(math.abs(summitBounds.max.Z - finishBounds.max.Z - 1) <= POSITION_TOLERANCE)
 end)
 
-TestRunner.test("PalmFinish FinishPlaceholder remains passive and attribute-free", function()
-	local finish = scene.Triggers[palmConfig.FinishPlaceholder] :: Part
+TestRunner.test("PalmFinish FinishLine is active with the final finish contract", function()
+	local finish = scene.Triggers[palmConfig.FinishLine] :: Part
 	TestRunner.assertEqual(finish.Material, Enum.Material.Neon)
 	assertVectorClose(Vector3.new(finish.Color.R, finish.Color.G, finish.Color.B), Vector3.new(0, 1, 0))
 	TestRunner.assertEqual(finish.Transparency, 0.5)
-	TestRunner.assertTrue(finish.Anchored)
+	TestRunner.assertTrue(finish.Anchored and finish.CanTouch and finish.CanQuery)
 	TestRunner.assertFalse(finish.CanCollide)
-	TestRunner.assertFalse(finish.CanTouch)
-	TestRunner.assertFalse(finish.CanQuery)
-	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
-	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
-	assertNoTagsOrAttributes(finish)
-	TestRunner.assertEqual(#finish:GetChildren(), 0)
+	TestRunner.assertTrue(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertEqual(#CollectionService:GetTags(finish), 1)
+	TestRunner.assertEqual(finish:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder), 4)
+	assertOnlyEngineTouchChildren(finish)
 end)
 
-TestRunner.test("PalmFinish FinishPlaceholder preserves the Step73 summit route clearance", function()
-	local finishBounds = getAabb(scene.Triggers[palmConfig.FinishPlaceholder] :: BasePart)
+TestRunner.test("PalmFinish FinishLine preserves the Step73 summit route clearance", function()
+	local finishBounds = getAabb(scene.Triggers[palmConfig.FinishLine] :: BasePart)
 	local stepBounds = getAabb(orderedStep(73))
 	local crownNeckBounds = getAabb(scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.CrownNeck] :: BasePart)
 	local crownHubBounds = getAabb(scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.CrownHub] :: BasePart)
@@ -557,29 +574,32 @@ TestRunner.test("PalmFinish FinishPlaceholder preserves the Step73 summit route 
 	TestRunner.assertFalse(aabbsIntersect(finishBounds, crownHubBounds))
 end)
 
-TestRunner.test("PalmFinish activates only PalmFallCatch within Scene04", function()
+TestRunner.test("PalmFinish has final Scene04 gameplay tag counts", function()
 	local catch = scene.Hazards[palmConfig.PalmFallCatch]
-	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 1)
+	local upperCatch = scene.Hazards[palmConfig.PalmUpperFallCatch]
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 2)
 	TestRunner.assertTrue(CollectionService:HasTag(catch, RunConfig.Tags.Hazard))
-	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Coin), 0)
-	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Finish), 0)
+	TestRunner.assertTrue(CollectionService:HasTag(upperCatch, RunConfig.Tags.Hazard))
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Coin), 3)
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Finish), 1)
 	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Checkpoint), 0)
 	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.RunStart), 0)
 end)
 
-TestRunner.test("PalmFinish keeps PalmBase coins and finish Phase 2.8 contracts inactive", function()
-	local checkpoint = scene03.Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
-	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
-	for _, name in { "CheckpointId", "CheckpointOrder", "RespawnOffset" } do TestRunner.assertTrue(checkpoint:GetAttribute(name) == nil) end
-	for _, name in palmConfig.CoinMarkerNames do
-		local marker = scene.Coins[name]
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
-		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+TestRunner.test("PalmFinish keeps PalmBase coins and finish contracts active", function()
+	local checkpoint = scene03.Triggers[WorldConfig.LaserIsland.PalmBaseCheckpoint]
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "PalmBase")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+	for _, name in palmConfig.CoinIds do
+		local coin = scene.Coins[name]
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), name)
 	end
-	local finish = scene.Triggers[palmConfig.FinishPlaceholder]
-	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
-	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
-	for _, descendant in scene:GetDescendants() do TestRunner.assertFalse(descendant:GetAttribute("CheckpointOrder") == 4) end
+	local finish = scene.Triggers[palmConfig.FinishLine]
+	TestRunner.assertTrue(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertEqual(finish:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder), 4)
 end)
 
 TestRunner.test("PalmFinish contains no scripts SpawnLocations or runtime containers", function()
@@ -621,37 +641,58 @@ TestRunner.test("PalmFinish retains the Scene03 laser pivot coins and PalmBase b
 	TestRunner.assertEqual(countTaggedUnder(scene03, RunConfig.Tags.Hazard), 1)
 	TestRunner.assertTrue(CollectionService:HasTag(assembly[WorldConfig.LaserIsland.LaserBar], RunConfig.Tags.Hazard))
 	TestRunner.assertEqual(#scene03.Coins:GetChildren(), 5)
-	for _, marker in scene03.Coins:GetChildren() do assertNoTagsOrAttributes(marker) end
-	local checkpoint = scene03.Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
-	assertNoTagsOrAttributes(checkpoint)
-	TestRunner.assertFalse((checkpoint :: BasePart).CanTouch)
+	for _, coin in scene03.Coins:GetChildren() do
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), coin.Name)
+	end
+	local checkpoint = scene03.Triggers[WorldConfig.LaserIsland.PalmBaseCheckpoint]
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	TestRunner.assertTrue((checkpoint :: BasePart).CanTouch and (checkpoint :: BasePart).CanQuery)
 end)
 
 TestRunner.test("PalmFinish retains Baseplate and deep-water core geometry", function()
 	assertVectorClose(workspace.Baseplate.Position, Vector3.new(0, -14, 0))
 	assertVectorClose(workspace.Baseplate.Size, Vector3.new(2048, 16, 2048))
+	TestRunner.assertFalse(workspace.Baseplate.CanCollide)
+	TestRunner.assertFalse(workspace.Baseplate.CanTouch)
+	TestRunner.assertTrue(workspace.Baseplate.CanQuery)
+	TestRunner.assertEqual(workspace.Baseplate.Transparency, 1)
+	TestRunner.assertFalse(workspace.Baseplate.CastShadow)
 	local water = scene02.Geometry[WorldConfig.Water.WaterSurface] :: BasePart
-	local kill = scene02.Hazards[WorldConfig.Water.WaterKillPlane] :: BasePart
-	assertVectorClose(water.Position, Vector3.new(111, -2.3, -107))
-	assertVectorClose(water.Size, Vector3.new(32, 6.8, 56))
-	assertVectorClose(kill.Position, Vector3.new(111, -5.3, -107))
-	assertVectorClose(kill.Size, Vector3.new(40, 0.3, 56))
+	local kill = world[WorldConfig.Root.Environment][WorldConfig.Environment.OceanKill] :: BasePart
+	assertVectorClose(water.Position, Vector3.new(111, -2.85, -107))
+	assertVectorClose(water.Size, Vector3.new(32, 5.7, 56))
+	TestRunner.assertTrue(math.abs(water.Position.Y + water.Size.Y / 2) <= POSITION_TOLERANCE)
+	assertVectorClose(kill.Position, Vector3.new(111, -1, -107))
+	assertVectorClose(kill.Size, Vector3.new(512, 0.5, 512))
 end)
 
-TestRunner.test("PalmFinish retains the short bridge and legacy VerticalSlice active paths", function()
-	local bridge = beachObby.TemporaryAccess.SpawnBridge
-	assertExactChildren(bridge, { BridgeSegment01 = "Part", BridgeSegment02 = "Part", BridgeSegment03 = "Part" })
-	TestRunner.assertTrue(math.abs(bridge.BridgeSegment01.Size.Z - 99.397865) <= POSITION_TOLERANCE)
-	for _, descendant in { bridge, table.unpack(bridge:GetDescendants()) } do assertNoTagsOrAttributes(descendant) end
+TestRunner.test("PalmFinish retains the production route and release hierarchy", function()
+	TestRunner.assertTrue(beachObby:FindFirstChild("TemporaryAccess") == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("SpawnBridge", true) == nil)
+	assertExactChildren(beachObby, {
+		[WorldConfig.Root.World] = "Model",
+	})
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
+	local tint = scene.Geometry[palmConfig.HotSandTint] :: BasePart
+	local fallCatch = scene.Hazards[palmConfig.PalmFallCatch] :: BasePart
+	TestRunner.assertTrue(tint:IsA("Part") and not tint.CanCollide and not tint.CanTouch and not tint.CanQuery)
+	TestRunner.assertTrue(fallCatch.CanCollide and fallCatch.CanTouch and fallCatch.CanQuery)
+	TestRunner.assertTrue(CollectionService:HasTag(fallCatch, RunConfig.Tags.Hazard))
 	local expectedPaths = {
-		[RunConfig.Tags.Coin] = { "Workspace.BeachObby.VerticalSlice.Coins.DemoCoin" },
-		[RunConfig.Tags.Finish] = { "Workspace.BeachObby.VerticalSlice.Triggers.FinishLine" },
-		[RunConfig.Tags.RunStart] = { "Workspace.BeachObby.VerticalSlice.Triggers.StartLine" },
+		[RunConfig.Tags.Coin] = {},
+		[RunConfig.Tags.Finish] = { "Workspace.BeachObby.World.Scene04_PalmFinish.Triggers.FinishLine" },
+		[RunConfig.Tags.RunStart] = { "Workspace.BeachObby.World.Scene01_HotBeach.Start.StartLine" },
 		[RunConfig.Tags.Checkpoint] = {
-			"Workspace.BeachObby.VerticalSlice.StartSpawn",
-			"Workspace.BeachObby.VerticalSlice.Triggers.MidCheckpoint",
+			"Workspace.BeachObby.World.Scene01_HotBeach.Start.StartSpawn",
+			"Workspace.BeachObby.World.Scene01_HotBeach.Triggers.WaterStartCheckpoint",
+			"Workspace.BeachObby.World.Scene02_Water.Triggers.LaserIslandStartCheckpoint",
+			"Workspace.BeachObby.World.Scene03_LaserIsland.Triggers.PalmBaseCheckpoint",
 		},
 	}
+	for _, coin in CollectionService:GetTagged(RunConfig.Tags.Coin) do table.insert(expectedPaths[RunConfig.Tags.Coin], coin:GetFullName()) end
 	for tag, expected in expectedPaths do
 		local actual = {}
 		for _, tagged in CollectionService:GetTagged(tag) do table.insert(actual, tagged:GetFullName()) end
@@ -662,27 +703,293 @@ TestRunner.test("PalmFinish retains the short bridge and legacy VerticalSlice ac
 	end
 end)
 
-TestRunner.test("PalmFinish preserves scene connection boundaries and World VerticalSlice separation", function()
+TestRunner.test("PalmFinish preserves scene boundaries under the sole World release root", function()
 	local connections = {
-		{ scene01.Geometry.EndPlatform, scene02.Geometry.EntryPlatform },
-		{ scene02.Geometry.ExitPlatform, scene03.Geometry.EntryPlatform },
-		{ scene03.Geometry.ExitPlatform, scene.Geometry[palmConfig.EntryPlatform] },
+		{ First = scene01.Geometry.EndPlatform, Second = scene02.Geometry.EntryPlatform, Separation = 0 },
+		{ First = scene02.Geometry.ExitPlatform, Second = scene03.Geometry.EntryPlatform, Separation = 0.05 },
+		{ First = scene03.Geometry.ExitPlatform, Second = scene.Geometry[palmConfig.EntryPlatform], Separation = 0.05 },
 	}
-	for _, pair in connections do
-		local first = getAabb(pair[1] :: BasePart)
-		local second = getAabb(pair[2] :: BasePart)
+	for _, connection in connections do
+		local first = getAabb(connection.First)
+		local second = getAabb(connection.Second)
 		TestRunner.assertTrue(xzOverlap(first, second))
-		TestRunner.assertTrue(math.abs(first.max.Y - second.max.Y) <= POSITION_TOLERANCE)
+		TestRunner.assertTrue(
+			math.abs(math.abs(first.max.Y - second.max.Y) - connection.Separation) <= POSITION_TOLERANCE
+		)
 	end
-	TestRunner.assertTrue(horizontalGap(instanceAabb(world), instanceAabb(beachObby.VerticalSlice)) >= 60)
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:GetChildren()[1], world)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
+	for _, descendant in beachObby:GetDescendants() do
+		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant:IsDescendantOf(world)) end
+	end
+end)
+
+TestRunner.test("Palm fall hazards cover normal upper-step escape trajectories without intersecting the route", function()
+	local walkSpeed = 16
+	local jumpHeight = 7.2
+	local gravity = workspace.Gravity
+	TestRunner.assertTrue(math.abs(gravity - 196.2) <= POSITION_TOLERANCE)
+	local jumpVelocity = math.sqrt(2 * gravity * jumpHeight)
+	local lowerCatch = scene.Hazards[palmConfig.PalmFallCatch] :: BasePart
+	local upperCatch = scene.Hazards[palmConfig.PalmUpperFallCatch] :: BasePart
+	local lowerBounds = getAabb(lowerCatch)
+	local upperBounds = getAabb(upperCatch)
+
+	local function outerTopPoint(part: BasePart, direction: Vector2): Vector3
+		local half = part.Size / 2
+		local bestPoint = part.Position
+		local bestProjection = -math.huge
+		for _, x in { -half.X, half.X } do
+			for _, z in { -half.Z, half.Z } do
+				local point = part.CFrame:PointToWorldSpace(Vector3.new(x, half.Y, z))
+				local projection = Vector2.new(point.X, point.Z):Dot(direction)
+				if projection > bestProjection then
+					bestProjection = projection
+					bestPoint = point
+				end
+			end
+		end
+		return bestPoint
+	end
+
+	local function timeToDescendingHeight(startY: number, targetY: number, initialVelocity: number): number
+		return (initialVelocity + math.sqrt(initialVelocity * initialVelocity + 2 * gravity * (startY - targetY))) / gravity
+	end
+
+	local function pointAt(start: Vector3, direction: Vector2, initialVelocity: number, time: number): Vector3
+		return Vector3.new(
+			start.X + direction.X * walkSpeed * time,
+			start.Y + initialVelocity * time - 0.5 * gravity * time * time,
+			start.Z + direction.Y * walkSpeed * time
+		)
+	end
+
+	local function inside(bounds: Bounds, point: Vector3): boolean
+		return point.X >= bounds.min.X and point.X <= bounds.max.X
+			and point.Y >= bounds.min.Y and point.Y <= bounds.max.Y
+			and point.Z >= bounds.min.Z and point.Z <= bounds.max.Z
+	end
+
+	local lowerSamples: { { part: BasePart, direction: Vector2 } } = {
+		{ part = orderedStep(55), direction = Vector2.new(0, -1) },
+		{ part = orderedStep(61), direction = Vector2.new(1, 0) },
+		{ part = orderedStep(67), direction = Vector2.new(0, 1) },
+		{ part = scene.Geometry[palmConfig.SummitPlatform] :: BasePart, direction = Vector2.new(1, 0) },
+	}
+	for _, sample in lowerSamples do
+		local start = outerTopPoint(sample.part, sample.direction)
+		for _, initialVelocity in { 0, jumpVelocity } do
+			local time = timeToDescendingHeight(start.Y, lowerBounds.max.Y, initialVelocity)
+			local landing = pointAt(start, sample.direction, initialVelocity, time)
+			local margin = math.min(
+				landing.X - lowerBounds.min.X,
+				lowerBounds.max.X - landing.X,
+				landing.Z - lowerBounds.min.Z,
+				lowerBounds.max.Z - landing.Z
+			)
+			TestRunner.assertTrue(margin >= 2, string.format("%s lower-catch margin is %.3f", sample.part.Name, margin))
+		end
+	end
+
+	local island = scene03.Geometry[WorldConfig.LaserIsland.IslandBase] :: BasePart
+	local islandCenter = Vector2.new(island.Position.X, island.Position.Z)
+	local islandRadius = island.Size.Y / 2
+	for _, stepIndex in { 72, 73 } do
+		local step = orderedStep(stepIndex)
+		local direction = Vector2.new(-1, 0)
+		local start = outerTopPoint(step, direction)
+		for _, initialVelocity in { 0, jumpVelocity } do
+			local landingTime = timeToDescendingHeight(start.Y, getAabb(island).max.Y, initialVelocity)
+			local landing = pointAt(start, direction, initialVelocity, landingTime)
+			local landingXZ = Vector2.new(landing.X, landing.Z)
+			TestRunner.assertTrue((landingXZ - islandCenter).Magnitude <= islandRadius)
+
+			local hitUpper = false
+			local sampleCount = math.ceil(landingTime * 240)
+			for sampleIndex = 0, sampleCount do
+				local time = math.min(sampleIndex / 240, landingTime)
+				if inside(upperBounds, pointAt(start, direction, initialVelocity, time)) then
+					hitUpper = true
+					break
+				end
+			end
+			TestRunner.assertTrue(hitUpper, step.Name .. " must cross PalmUpperFallCatch before IslandBase")
+		end
+	end
+
+	local routeParts: { BasePart } = {
+		scene.Geometry[palmConfig.EntryPlatform] :: BasePart,
+		scene.Geometry[palmConfig.SummitPlatform] :: BasePart,
+		scene.Triggers[palmConfig.FinishLine] :: BasePart,
+	}
+	for index = 1, spiralConfig.StepCount do table.insert(routeParts, orderedStep(index)) end
+	for _, routePart in routeParts do
+		local routeBounds = getAabb(routePart)
+		TestRunner.assertFalse(aabbsIntersect(lowerBounds, routeBounds))
+		TestRunner.assertFalse(aabbsIntersect(upperBounds, routeBounds))
+	end
+	local trunkCore = scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.TrunkCore] :: BasePart
+	TestRunner.assertTrue(aabbsIntersect(lowerBounds, getAabb(trunkCore)))
+	TestRunner.assertFalse(aabbsIntersect(upperBounds, getAabb(trunkCore)))
+
+	local expectedHazards = {
+		[lowerCatch] = true,
+		[upperCatch] = true,
+	}
+	local actualHazards = 0
+	for _, child in scene.Hazards:GetChildren() do
+		actualHazards += 1
+		TestRunner.assertTrue(expectedHazards[child] == true)
+		TestRunner.assertTrue(CollectionService:HasTag(child, RunConfig.Tags.Hazard))
+		TestRunner.assertEqual(#CollectionService:GetTags(child), 1)
+	end
+	TestRunner.assertEqual(actualHazards, 2)
+end)
+
+TestRunner.test("PalmFinish hot-sand island visibly supports the palm with exact passive geometry", function()
+	local hotSand = expectChild(scene.Geometry, palmConfig.HotSandIsland, "Part") :: Part
+	local sourceVisual = scene01.Geometry[WorldConfig.HotBeach.HotSandVisual] :: BasePart
+	local bounds = getAabb(hotSand)
+	TestRunner.assertEqual(hotSand.Shape, Enum.PartType.Cylinder)
+	assertCFrameClose(hotSand.CFrame, CFrame.new(164, 0.95, -184) * CFrame.Angles(0, 0, math.rad(90)))
+	assertVectorClose(hotSand.Size, Vector3.new(1.9, 76, 76))
+	assertVectorClose(bounds.min, Vector3.new(126, 0, -222))
+	assertVectorClose(bounds.max, Vector3.new(202, 1.9, -146))
+	TestRunner.assertEqual(hotSand.Material, Enum.Material.Sand)
+	TestRunner.assertEqual(hotSand.Color, sourceVisual.Color)
+	TestRunner.assertEqual(hotSand.Transparency, 0)
+	TestRunner.assertTrue(hotSand.Anchored)
+	TestRunner.assertFalse(hotSand.CanCollide)
+	TestRunner.assertFalse(hotSand.CanTouch)
+	TestRunner.assertFalse(hotSand.CanQuery)
+	TestRunner.assertFalse(hotSand.CastShadow)
+	assertNoTagsOrAttributes(hotSand)
+	TestRunner.assertEqual(#hotSand:GetChildren(), 0)
+	local trunk = scene.Geometry[palmConfig.PalmTree][palmConfig.Trunk][palmConfig.TrunkCore] :: BasePart
+	TestRunner.assertTrue(trunk.Position.X >= bounds.min.X and trunk.Position.X <= bounds.max.X)
+	TestRunner.assertTrue(trunk.Position.Z >= bounds.min.Z and trunk.Position.Z <= bounds.max.Z)
+	local islandBounds = getAabb(scene03.Geometry[WorldConfig.LaserIsland.IslandBase] :: BasePart)
+	TestRunner.assertTrue(xzOverlap(bounds, islandBounds))
+	TestRunner.assertTrue(math.abs(islandBounds.max.Y - bounds.max.Y - 0.1) <= POSITION_TOLERANCE)
+end)
+
+TestRunner.test("Palm hot-sand kill layer clears the route and cannot become a shortcut", function()
+	local hotSand = scene.Geometry[palmConfig.HotSandIsland] :: BasePart
+	local hotSandTint = scene.Geometry[palmConfig.HotSandTint] :: BasePart
+	local catch = scene.Hazards[palmConfig.PalmFallCatch] :: BasePart
+	local upperCatch = scene.Hazards[palmConfig.PalmUpperFallCatch] :: BasePart
+	local sandBounds = getAabb(hotSand)
+	local catchBounds = getAabb(catch)
+	assertCFrameClose(catch.CFrame, CFrame.new(164, 0.7, -184))
+	assertVectorClose(catch.Size, Vector3.new(76, 0.3, 76))
+	TestRunner.assertTrue(catchBounds.min.X <= sandBounds.min.X and catchBounds.max.X >= sandBounds.max.X)
+	TestRunner.assertTrue(catchBounds.min.Z <= sandBounds.min.Z and catchBounds.max.Z >= sandBounds.max.Z)
+	local entryBounds = getAabb(scene.Geometry[palmConfig.EntryPlatform] :: BasePart)
+	local step01Bounds = getAabb(orderedStep(1))
+	TestRunner.assertTrue(math.abs(entryBounds.min.Y - catchBounds.max.Y - 0.15) <= POSITION_TOLERANCE)
+	TestRunner.assertTrue(math.abs(step01Bounds.min.Y - catchBounds.max.Y - 0.9) <= POSITION_TOLERANCE)
+	local routeParts: { BasePart } = {
+		scene03.Geometry.ExitPlatform :: BasePart,
+		scene03.Triggers[WorldConfig.LaserIsland.PalmBaseCheckpoint] :: BasePart,
+		scene.Geometry[palmConfig.EntryPlatform] :: BasePart,
+		scene.Geometry[palmConfig.SummitPlatform] :: BasePart,
+		scene.Triggers[palmConfig.FinishLine] :: BasePart,
+	}
+	for index = 1, spiralConfig.StepCount do table.insert(routeParts, orderedStep(index)) end
+	for _, routePart in routeParts do TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(routePart))) end
+	TestRunner.assertTrue(catch.CanCollide)
+	TestRunner.assertTrue(catch.CanTouch and catch.CanQuery)
+	TestRunner.assertTrue(CollectionService:HasTag(catch, RunConfig.Tags.Hazard))
+	TestRunner.assertFalse(hotSand.CanCollide)
+	TestRunner.assertFalse(hotSand.CanTouch)
+	TestRunner.assertFalse(hotSand.CanQuery)
+	TestRunner.assertFalse(hotSandTint.CanCollide)
+	TestRunner.assertFalse(hotSandTint.CanTouch)
+	TestRunner.assertFalse(hotSandTint.CanQuery)
+	assertCFrameClose(upperCatch.CFrame, CFrame.new(145.5, 27.2, -184))
+	assertVectorClose(upperCatch.Size, Vector3.new(9, 22.4, 64))
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 2)
+	TestRunner.assertEqual(countTaggedUnder(world, RunConfig.Tags.Hazard), 10)
+	TestRunner.assertEqual(countTaggedUnder(beachObby, RunConfig.Tags.Hazard), 10)
+end)
+
+TestRunner.test("PalmFinish hot-sand visual stack matches the Scene01 hot-beach fingerprint", function()
+	local sourceBase = scene01.Geometry[WorldConfig.HotBeach.HotSandVisual] :: BasePart
+	local sourceTint = scene01.Hazards[WorldConfig.HotBeach.HotSandHazard] :: BasePart
+	local hotSand = scene.Geometry[palmConfig.HotSandIsland] :: Part
+	local tint = expectChild(scene.Geometry, palmConfig.HotSandTint, "Part") :: Part
+	local sandBounds = getAabb(hotSand)
+	local tintBounds = getAabb(tint)
+	TestRunner.assertEqual(sourceBase.Material, Enum.Material.Sand)
+	TestRunner.assertEqual(sourceBase.MaterialVariant, "")
+	TestRunner.assertEqual(sourceBase.Color, Color3.fromRGB(216, 178, 105))
+	TestRunner.assertEqual(sourceTint.Material, Enum.Material.Neon)
+	TestRunner.assertEqual(sourceTint.MaterialVariant, "")
+	TestRunner.assertEqual(sourceTint.Color, Color3.fromRGB(235, 92, 42))
+	TestRunner.assertTrue(math.abs(sourceTint.Transparency - 0.65) <= POSITION_TOLERANCE)
+	TestRunner.assertEqual(sourceTint.Reflectance, 0)
+	TestRunner.assertEqual(hotSand.Material, sourceBase.Material)
+	TestRunner.assertEqual(hotSand.MaterialVariant, sourceBase.MaterialVariant)
+	TestRunner.assertEqual(hotSand.Color, sourceBase.Color)
+	TestRunner.assertEqual(tint.Shape, Enum.PartType.Cylinder)
+	assertCFrameClose(tint.CFrame, CFrame.new(164, 1.92, -184) * CFrame.Angles(0, 0, math.rad(90)))
+	assertVectorClose(tint.Size, Vector3.new(0.06, 76, 76))
+	TestRunner.assertEqual(tint.Material, sourceTint.Material)
+	TestRunner.assertEqual(tint.MaterialVariant, sourceTint.MaterialVariant)
+	TestRunner.assertEqual(tint.Color, sourceTint.Color)
+	TestRunner.assertTrue(math.abs(tint.Transparency - sourceTint.Transparency) <= POSITION_TOLERANCE)
+	TestRunner.assertEqual(tint.Reflectance, sourceTint.Reflectance)
+	TestRunner.assertTrue(tint.Anchored)
+	TestRunner.assertFalse(tint.CanCollide)
+	TestRunner.assertFalse(tint.CanTouch)
+	TestRunner.assertFalse(tint.CanQuery)
+	TestRunner.assertFalse(tint.CastShadow)
+	assertNoTagsOrAttributes(tint)
+	TestRunner.assertEqual(#tint:GetChildren(), 0)
+	assertVectorClose(tintBounds.min, Vector3.new(126, 1.89, -222))
+	assertVectorClose(tintBounds.max, Vector3.new(202, 1.95, -146))
+	TestRunner.assertTrue(math.abs(sandBounds.max.Y - tintBounds.min.Y - 0.01) <= POSITION_TOLERANCE)
+	TestRunner.assertTrue(math.abs(2 - tintBounds.max.Y - 0.05) <= POSITION_TOLERANCE)
+	TestRunner.assertTrue(math.abs(2.05 - tintBounds.max.Y - 0.1) <= POSITION_TOLERANCE)
+end)
+
+TestRunner.test("PalmFallCatch physically arrests lethal island falls without becoming a route shortcut", function()
+	local hotSand = scene.Geometry[palmConfig.HotSandIsland] :: BasePart
+	local tint = scene.Geometry[palmConfig.HotSandTint] :: BasePart
+	local catch = scene.Hazards[palmConfig.PalmFallCatch] :: BasePart
+	local catchBounds = getAabb(catch)
+	local sandBounds = getAabb(hotSand)
+	assertCFrameClose(catch.CFrame, CFrame.new(164, 0.7, -184))
+	assertVectorClose(catch.Size, Vector3.new(76, 0.3, 76))
+	assertVectorClose(catchBounds.min, Vector3.new(126, 0.55, -222))
+	assertVectorClose(catchBounds.max, Vector3.new(202, 0.85, -146))
+	TestRunner.assertTrue(catch.CanCollide and catch.CanTouch and catch.CanQuery)
+	TestRunner.assertEqual(#CollectionService:GetTags(catch), 1)
+	TestRunner.assertTrue(CollectionService:HasTag(catch, RunConfig.Tags.Hazard))
+	TestRunner.assertTrue(catchBounds.min.X <= sandBounds.min.X and catchBounds.max.X >= sandBounds.max.X)
+	TestRunner.assertTrue(catchBounds.min.Z <= sandBounds.min.Z and catchBounds.max.Z >= sandBounds.max.Z)
+	local entryBounds = getAabb(scene.Geometry[palmConfig.EntryPlatform] :: BasePart)
+	local step01Bounds = getAabb(orderedStep(1))
+	TestRunner.assertTrue(math.abs(entryBounds.min.Y - catchBounds.max.Y - 0.15) <= POSITION_TOLERANCE)
+	TestRunner.assertTrue(math.abs(step01Bounds.min.Y - catchBounds.max.Y - 0.9) <= POSITION_TOLERANCE)
+	for index = 1, spiralConfig.StepCount do TestRunner.assertFalse(aabbsIntersect(catchBounds, getAabb(orderedStep(index)))) end
+	TestRunner.assertFalse(aabbsIntersect(catchBounds, entryBounds))
+	TestRunner.assertFalse(hotSand.CanCollide)
+	TestRunner.assertFalse(tint.CanCollide)
+	assertCFrameClose((scene.Hazards[palmConfig.PalmUpperFallCatch] :: BasePart).CFrame, CFrame.new(145.5, 27.2, -184))
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 2)
+	TestRunner.assertEqual(countTaggedUnder(world, RunConfig.Tags.Hazard), 10)
+	TestRunner.assertEqual(countTaggedUnder(beachObby, RunConfig.Tags.Hazard), 10)
 end)
 
 TestRunner.test("PalmFinish produces the approved Phase 2.7 Hazard counts", function()
 	TestRunner.assertEqual(countTaggedUnder(scene01, RunConfig.Tags.Hazard), 4)
-	TestRunner.assertEqual(countTaggedUnder(scene02, RunConfig.Tags.Hazard), 3)
+	TestRunner.assertEqual(countTaggedUnder(scene02, RunConfig.Tags.Hazard), 2)
 	TestRunner.assertEqual(countTaggedUnder(scene03, RunConfig.Tags.Hazard), 1)
-	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 1)
-	TestRunner.assertEqual(countTaggedUnder(world, RunConfig.Tags.Hazard), 9)
+	TestRunner.assertEqual(countTaggedUnder(scene, RunConfig.Tags.Hazard), 2)
+	TestRunner.assertEqual(countTaggedUnder(world, RunConfig.Tags.Hazard), 10)
 	TestRunner.assertEqual(countTaggedUnder(beachObby, RunConfig.Tags.Hazard), 10)
 end)
 

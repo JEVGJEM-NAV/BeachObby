@@ -8,8 +8,11 @@ local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 local GameSessionService = require(ServerScriptService.Services.GameSessionService)
 local TestRunner = require(script.Parent.TestRunner)
 
-local defaultCheckpoint = Workspace:WaitForChild("BeachObby"):WaitForChild("VerticalSlice"):WaitForChild("StartSpawn")
-	:: BasePart
+local defaultCheckpoint = Workspace:WaitForChild("BeachObby")
+	:WaitForChild("World")
+	:WaitForChild("Scene01_HotBeach")
+	:WaitForChild("Start")
+	:WaitForChild("StartSpawn") :: BasePart
 
 local function createPlayerIdentity(name: string): Player
 	return ({ Name = name } :: any) :: Player

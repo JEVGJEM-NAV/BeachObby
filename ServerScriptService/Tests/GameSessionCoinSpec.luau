@@ -9,9 +9,11 @@ local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 local GameSessionService = require(ServerScriptService.Services.GameSessionService)
 local TestRunner = require(script.Parent.TestRunner)
 
-local verticalSlice = Workspace:WaitForChild("BeachObby"):WaitForChild("VerticalSlice")
-local startSpawn = verticalSlice:WaitForChild("StartSpawn") :: BasePart
-local midCheckpoint = verticalSlice:WaitForChild("Triggers"):WaitForChild("MidCheckpoint") :: BasePart
+local world = Workspace:WaitForChild("BeachObby"):WaitForChild("World")
+local startSpawn = world:WaitForChild("Scene01_HotBeach"):WaitForChild("Start"):WaitForChild("StartSpawn") :: BasePart
+local waterStartCheckpoint = world:WaitForChild("Scene01_HotBeach")
+	:WaitForChild("Triggers")
+	:WaitForChild("WaterStartCheckpoint") :: BasePart
 
 type CleanupCallback = () -> ()
 type AddCleanup = (CleanupCallback) -> ()
@@ -214,12 +216,12 @@ testWithCleanup("GameSessionService Coin preserves current checkpoint", function
 	local service, player = createRunningSession("CoinCheckpointPlayer", 110)
 	local coin = createCoin(addCleanup, "CoinCheckpointCoin", "Checkpoint")
 	local character = createCharacter(addCleanup, "CoinCheckpointCharacter")
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 	service:CollectCoin(player, coin)
 
 	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
-	local offset = midCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
-	TestRunner.assertTrue((character:GetPivot().Position - (midCheckpoint.CFrame + offset).Position).Magnitude < 0.01)
+	local offset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	TestRunner.assertTrue((character:GetPivot().Position - (waterStartCheckpoint.CFrame + offset).Position).Magnitude < 0.01)
 end)
 
 testWithCleanup("GameSessionService rejects non-string CoinId", function(addCleanup)

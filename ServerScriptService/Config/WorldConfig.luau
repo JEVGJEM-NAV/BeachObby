@@ -3,7 +3,7 @@
 local Root = table.freeze({
 	BeachObby = "BeachObby",
 	World = "World",
-	VerticalSlice = "VerticalSlice",
+	Environment = "Environment",
 })
 
 local Scenes = table.freeze({
@@ -15,6 +15,11 @@ local Scenes = table.freeze({
 
 local Shared = table.freeze({
 	SharedEnvironment = "SharedEnvironment",
+})
+
+local Environment = table.freeze({
+	OceanSurface = "OceanSurface",
+	OceanKill = "OceanKill",
 })
 
 local CommonFolders = table.freeze({
@@ -55,7 +60,9 @@ local HotBeach = table.freeze({
 	HotSandHazard = "HotSandHazard",
 	LoungersFolder = "Loungers",
 	StickFiguresFolder = "StickFigures",
-	WaterStartMarker = "WaterStartCheckpointMarker",
+	StartSpawn = "StartSpawn",
+	StartLine = "StartLine",
+	WaterStartCheckpoint = "WaterStartCheckpoint",
 	LoungeNames = LoungeNames,
 	RunnerNames = RunnerNames,
 	CoinIds = CoinIds,
@@ -83,10 +90,9 @@ local WaterCoinIds = table.freeze({
 local Water = table.freeze({
 	SceneFootprint = "SceneFootprint",
 	WaterSurface = "WaterSurface",
-	WaterKillPlane = "WaterKillPlane",
 	RingsFolder = "Rings",
 	SharksFolder = "Sharks",
-	LaserIslandStartMarker = "LaserIslandStartCheckpointMarker",
+	LaserIslandStartCheckpoint = "LaserIslandStartCheckpoint",
 	RingNames = RingNames,
 	CoinIds = WaterCoinIds,
 	LaserIslandStartCheckpointId = "LaserIslandStart",
@@ -106,11 +112,11 @@ local LaserIsland = table.freeze({
 	LaserAssembly = "LaserAssembly",
 	LaserBar = "LaserBar",
 	CoinIds = LaserIslandCoinIds,
-	PalmBaseCheckpointMarker = "PalmBaseCheckpoint",
+	PalmBaseCheckpoint = "PalmBaseCheckpoint",
 	PalmBaseCheckpointId = "PalmBase",
 })
 
-local PalmCoinMarkerNames = table.freeze({
+local PalmCoinIds = table.freeze({
 	"PalmCoin01",
 	"PalmCoin02",
 	"PalmCoin03",
@@ -144,9 +150,55 @@ local PalmFinish = table.freeze({
 	FrondPrefix = "Frond",
 	FrondCount = 8,
 	Spiral = PalmFinishSpiral,
+	HotSandIsland = "HotSandIsland",
+	HotSandTint = "HotSandTint",
 	PalmFallCatch = "PalmFallCatch",
-	CoinMarkerNames = PalmCoinMarkerNames,
-	FinishPlaceholder = "FinishPlaceholder",
+	PalmUpperFallCatch = "PalmUpperFallCatch",
+	CoinIds = PalmCoinIds,
+	FinishLine = "FinishLine",
+})
+
+local ProgressionCheckpoints = table.freeze({
+	table.freeze({
+		Scene = Scenes.HotBeach,
+		Folder = CommonFolders.Start,
+		Name = HotBeach.StartSpawn,
+		Id = "Start",
+		Order = 1,
+	}),
+	table.freeze({
+		Scene = Scenes.HotBeach,
+		Folder = CommonFolders.Triggers,
+		Name = HotBeach.WaterStartCheckpoint,
+		Id = HotBeach.WaterStartCheckpointId,
+		Order = 2,
+	}),
+	table.freeze({
+		Scene = Scenes.Water,
+		Folder = CommonFolders.Triggers,
+		Name = Water.LaserIslandStartCheckpoint,
+		Id = Water.LaserIslandStartCheckpointId,
+		Order = 3,
+	}),
+	table.freeze({
+		Scene = Scenes.LaserIsland,
+		Folder = CommonFolders.Triggers,
+		Name = LaserIsland.PalmBaseCheckpoint,
+		Id = LaserIsland.PalmBaseCheckpointId,
+		Order = 4,
+	}),
+})
+
+local ProgressionFinish = table.freeze({
+	Scene = Scenes.PalmFinish,
+	Folder = CommonFolders.Triggers,
+	Name = PalmFinish.FinishLine,
+	RequiredCheckpointOrder = 4,
+})
+
+local Progression = table.freeze({
+	Checkpoints = ProgressionCheckpoints,
+	Finish = ProgressionFinish,
 })
 
 local Runner01 = table.freeze({
@@ -238,11 +290,13 @@ return table.freeze({
 	Root = Root,
 	Scenes = Scenes,
 	Shared = Shared,
+	Environment = Environment,
 	CommonFolders = CommonFolders,
 	HotBeach = HotBeach,
 	Water = Water,
 	LaserIsland = LaserIsland,
 	PalmFinish = PalmFinish,
+	Progression = Progression,
 	MovingHazards = MovingHazards,
 	RotatingHazards = RotatingHazards,
 })

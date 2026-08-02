@@ -96,8 +96,12 @@ end
 function GameSessionService.new(defaultCheckpoint: BasePart, dependencies: Dependencies?): Service
 	local checkpointId, checkpointOrder = readCheckpointContract(defaultCheckpoint)
 	assert(
-		checkpointId == "Start" and checkpointOrder == 1,
-		"Default checkpoint must have CheckpointId 'Start', CheckpointOrder 1, and a Vector3 RespawnOffset"
+		defaultCheckpoint:IsA("BasePart")
+			and defaultCheckpoint:IsDescendantOf(Workspace)
+			and CollectionService:HasTag(defaultCheckpoint, RunConfig.Tags.Checkpoint)
+			and checkpointId == "Start"
+			and checkpointOrder == 1,
+		"Default checkpoint must be in Workspace, tagged Checkpoint, and have CheckpointId 'Start', CheckpointOrder 1, and a Vector3 RespawnOffset"
 	)
 
 	return setmetatable({
@@ -185,13 +189,14 @@ function GameSessionService.ReachCheckpoint(self: Service, player: Player, check
 		or session.phase ~= RunConfig.Phases.Running
 		or not checkpoint:IsA("BasePart")
 		or not checkpoint:IsDescendantOf(Workspace)
+		or not CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint)
 	then
 		return nil
 	end
 
 	local checkpointId, checkpointOrder = readCheckpointContract(checkpoint)
 
-	if checkpointId == nil or checkpointOrder == nil or checkpointOrder <= session.currentCheckpointOrder then
+	if checkpointId == nil or checkpointOrder == nil or checkpointOrder ~= session.currentCheckpointOrder + 1 then
 		return nil
 	end
 

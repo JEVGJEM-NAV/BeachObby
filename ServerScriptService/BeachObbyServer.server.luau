@@ -28,13 +28,24 @@ assert(getRunStateInstance ~= nil and getRunStateInstance:IsA("RemoteFunction"),
 local getRunState = getRunStateInstance :: RemoteFunction
 
 local workspaceBeachObby = Workspace:FindFirstChild("BeachObby")
-assert(workspaceBeachObby ~= nil, "Workspace.BeachObby must exist")
+assert(workspaceBeachObby ~= nil and workspaceBeachObby:IsA("Folder"), "Workspace.BeachObby must be a Folder")
 
-local verticalSlice = workspaceBeachObby:FindFirstChild("VerticalSlice")
-assert(verticalSlice ~= nil and verticalSlice:IsA("Model"), "Workspace.BeachObby.VerticalSlice must be a Model")
+local world = workspaceBeachObby:FindFirstChild(WorldConfig.Root.World)
+assert(world ~= nil and world:IsA("Model"), "Workspace.BeachObby.World must be a Model")
 
-local initialCheckpoint = verticalSlice:FindFirstChild("StartSpawn")
-assert(initialCheckpoint ~= nil and initialCheckpoint:IsA("SpawnLocation"), "StartSpawn must be a SpawnLocation")
+local initialCheckpointDefinition = WorldConfig.Progression.Checkpoints[1]
+assert(typeof(initialCheckpointDefinition) == "table", "Initial checkpoint definition must be a table")
+assert(initialCheckpointDefinition.Order == 1, "Initial checkpoint definition must have Order 1")
+assert(initialCheckpointDefinition.Id == "Start", "Initial checkpoint definition must have Id 'Start'")
+
+local initialScene = world:FindFirstChild(initialCheckpointDefinition.Scene)
+assert(initialScene ~= nil and initialScene:IsA("Model"), "Initial checkpoint scene must be a Model")
+
+local initialContainer = initialScene:FindFirstChild(initialCheckpointDefinition.Folder)
+assert(initialContainer ~= nil and initialContainer:IsA("Folder"), "Initial checkpoint container must be a Folder")
+
+local initialCheckpoint = initialContainer:FindFirstChild(initialCheckpointDefinition.Name)
+assert(initialCheckpoint ~= nil and initialCheckpoint:IsA("SpawnLocation"), "Initial checkpoint must be a SpawnLocation")
 
 local GameSessionService, didStart = GameSessionServiceModule.Start(Players, initialCheckpoint)
 
@@ -45,9 +56,6 @@ if didStart then
 end
 
 WorldTriggerService.Start(GameSessionService, runStateUpdatedRemote)
-
-local world = workspaceBeachObby:FindFirstChild(WorldConfig.Root.World)
-assert(world ~= nil and world:IsA("Model"), "Workspace.BeachObby.World must be a Model")
 
 local movingHazardEntries = {}
 

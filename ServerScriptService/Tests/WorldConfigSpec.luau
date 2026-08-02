@@ -8,7 +8,7 @@ local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 local expectedRoot = {
 	BeachObby = "BeachObby",
 	World = "World",
-	VerticalSlice = "VerticalSlice",
+	Environment = "Environment",
 }
 
 local expectedScenes = {
@@ -20,6 +20,11 @@ local expectedScenes = {
 
 local expectedShared = {
 	SharedEnvironment = "SharedEnvironment",
+}
+
+local expectedEnvironment = {
+	OceanSurface = "OceanSurface",
+	OceanKill = "OceanKill",
 }
 
 local expectedCommonFolders = {
@@ -35,6 +40,7 @@ local expectedGroups = {
 	Root = expectedRoot,
 	Scenes = expectedScenes,
 	Shared = expectedShared,
+	Environment = expectedEnvironment,
 	CommonFolders = expectedCommonFolders,
 }
 
@@ -77,6 +83,7 @@ end)
 
 TestRunner.test("WorldConfig Root contains exactly the expected names", function()
 	assertGroupMatches(WorldConfig.Root, expectedRoot)
+	TestRunner.assertTrue((WorldConfig.Root :: any).VerticalSlice == nil)
 end)
 
 TestRunner.test("WorldConfig Scenes contains exactly four expected names", function()
@@ -90,6 +97,8 @@ end)
 
 TestRunner.test("WorldConfig SharedEnvironment has the expected name", function()
 	assertGroupMatches(WorldConfig.Shared, expectedShared)
+	assertGroupMatches(WorldConfig.Environment, expectedEnvironment)
+	TestRunner.assertEqual(countKeys(WorldConfig.Environment), 2)
 end)
 
 TestRunner.test("WorldConfig CommonFolders contains exactly the expected names", function()
@@ -117,7 +126,11 @@ TestRunner.test("WorldConfig rejects changing an existing value", function()
 	TestRunner.assertError(function()
 		WorldConfig.Root.BeachObby = "Changed"
 	end)
+	TestRunner.assertError(function()
+		WorldConfig.Environment.OceanKill = "Changed"
+	end)
 	TestRunner.assertEqual(WorldConfig.Root.BeachObby, "BeachObby")
+	TestRunner.assertEqual(WorldConfig.Environment.OceanKill, "OceanKill")
 end)
 
 TestRunner.test("WorldConfig rejects adding a new value", function()
@@ -178,6 +191,9 @@ TestRunner.test("WorldConfig HotBeach CoinIds contain the expected stable IDs", 
 end)
 
 TestRunner.test("WorldConfig HotBeach WaterStart checkpoint ID is stable", function()
+	TestRunner.assertEqual(WorldConfig.HotBeach.StartSpawn, "StartSpawn")
+	TestRunner.assertEqual(WorldConfig.HotBeach.StartLine, "StartLine")
+	TestRunner.assertEqual(WorldConfig.HotBeach.WaterStartCheckpoint, "WaterStartCheckpoint")
 	TestRunner.assertEqual(WorldConfig.HotBeach.WaterStartCheckpointId, "WaterStart")
 end)
 
@@ -189,7 +205,9 @@ TestRunner.test("WorldConfig HotBeach values are non-empty strings", function()
 		hotBeach.HotSandHazard,
 		hotBeach.LoungersFolder,
 		hotBeach.StickFiguresFolder,
-		hotBeach.WaterStartMarker,
+		hotBeach.StartSpawn,
+		hotBeach.StartLine,
+		hotBeach.WaterStartCheckpoint,
 		hotBeach.WaterStartCheckpointId,
 	}
 
@@ -446,6 +464,7 @@ TestRunner.test("WorldConfig Water and HotBeach CoinIds do not overlap", functio
 end)
 
 TestRunner.test("WorldConfig Water checkpoint ID is stable", function()
+	TestRunner.assertEqual(WorldConfig.Water.LaserIslandStartCheckpoint, "LaserIslandStartCheckpoint")
 	TestRunner.assertEqual(WorldConfig.Water.LaserIslandStartCheckpointId, "LaserIslandStart")
 	TestRunner.assertFalse(WorldConfig.Water.LaserIslandStartCheckpointId == WorldConfig.HotBeach.WaterStartCheckpointId)
 end)
@@ -455,15 +474,18 @@ TestRunner.test("WorldConfig Water names are non-empty strings", function()
 	for _, value in {
 		water.SceneFootprint,
 		water.WaterSurface,
-		water.WaterKillPlane,
 		water.RingsFolder,
 		water.SharksFolder,
-		water.LaserIslandStartMarker,
+		water.LaserIslandStartCheckpoint,
 		water.LaserIslandStartCheckpointId,
 	} do
 		TestRunner.assertTrue(typeof(value) == "string")
 		TestRunner.assertTrue(value ~= "")
 	end
+	local fieldCount = 0
+	for _ in water do fieldCount += 1 end
+	TestRunner.assertEqual(fieldCount, 8)
+	TestRunner.assertTrue((water :: any).WaterKillPlane == nil)
 	for _, values in { water.RingNames, water.CoinIds } do
 		for _, value in values do
 			TestRunner.assertTrue(typeof(value) == "string")
@@ -505,7 +527,7 @@ TestRunner.test("WorldConfig LaserIsland retains the approved stable names", fun
 	TestRunner.assertEqual(laserIsland.CenterSphere, "CenterSphere")
 	TestRunner.assertEqual(laserIsland.LaserAssembly, "LaserAssembly")
 	TestRunner.assertEqual(laserIsland.LaserBar, "LaserBar")
-	TestRunner.assertEqual(laserIsland.PalmBaseCheckpointMarker, "PalmBaseCheckpoint")
+	TestRunner.assertEqual(laserIsland.PalmBaseCheckpoint, "PalmBaseCheckpoint")
 	TestRunner.assertEqual(laserIsland.PalmBaseCheckpointId, "PalmBase")
 end)
 
@@ -605,7 +627,7 @@ end)
 TestRunner.test("WorldConfig PalmFinish tables are frozen", function()
 	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish))
 	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish.Spiral))
-	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish.CoinMarkerNames))
+	TestRunner.assertTrue(table.isfrozen(WorldConfig.PalmFinish.CoinIds))
 end)
 
 TestRunner.test("WorldConfig PalmFinish retains the approved stable names", function()
@@ -620,8 +642,11 @@ TestRunner.test("WorldConfig PalmFinish retains the approved stable names", func
 		CrownHub = "CrownHub",
 		Fronds = "Fronds",
 		FrondPrefix = "Frond",
+		HotSandIsland = "HotSandIsland",
+		HotSandTint = "HotSandTint",
 		PalmFallCatch = "PalmFallCatch",
-		FinishPlaceholder = "FinishPlaceholder",
+		PalmUpperFallCatch = "PalmUpperFallCatch",
+		FinishLine = "FinishLine",
 	}
 	for name, value in expected do TestRunner.assertEqual(palmFinish[name], value) end
 	TestRunner.assertEqual(palmFinish.Spiral.FolderName, "SpiralSteps")
@@ -639,15 +664,17 @@ TestRunner.test("WorldConfig PalmFinish defines the approved frond contract", fu
 end)
 
 TestRunner.test("WorldConfig PalmFinish defines three unique passive coin marker names", function()
-	local names = WorldConfig.PalmFinish.CoinMarkerNames
+	local names = WorldConfig.PalmFinish.CoinIds
+	local fieldCount = 0
+	for _ in WorldConfig.PalmFinish do fieldCount += 1 end
 	TestRunner.assertTrue(table.isfrozen(names))
+	TestRunner.assertEqual(fieldCount, 17)
 	TestRunner.assertEqual(#names, 3)
 	assertArrayUnique(names)
 	for index = 1, 3 do
 		TestRunner.assertEqual(names[index], string.format("PalmCoin%02d", index))
 		TestRunner.assertTrue(string.match(names[index], "^PalmCoin%d%d$") ~= nil)
 	end
-	TestRunner.assertTrue((WorldConfig.PalmFinish :: any).CoinIds == nil)
 end)
 
 TestRunner.test("WorldConfig PalmFinish spiral tuning is deterministic", function()
@@ -706,12 +733,165 @@ TestRunner.test("WorldConfig rejects PalmFinish mutation", function()
 	local palmFinish = WorldConfig.PalmFinish
 	TestRunner.assertError(function() palmFinish.EntryPlatform = "Changed" end)
 	TestRunner.assertError(function() palmFinish.Spiral.Radius = 1 end)
-	TestRunner.assertError(function() palmFinish.CoinMarkerNames[1] = "Changed" end)
+	TestRunner.assertError(function() palmFinish.CoinIds[1] = "Changed" end)
+	TestRunner.assertError(function() palmFinish.HotSandIsland = "Changed" end)
+	TestRunner.assertError(function() palmFinish.HotSandTint = "Changed" end)
+	TestRunner.assertError(function() palmFinish.PalmUpperFallCatch = "Changed" end)
 	TestRunner.assertError(function() (palmFinish :: any).NewValue = "Changed" end)
 	TestRunner.assertEqual(palmFinish.EntryPlatform, "EntryPlatform")
 	TestRunner.assertEqual(palmFinish.Spiral.Radius, 9.5)
-	TestRunner.assertEqual(palmFinish.CoinMarkerNames[1], "PalmCoin01")
+	TestRunner.assertEqual(palmFinish.CoinIds[1], "PalmCoin01")
+	TestRunner.assertEqual(palmFinish.HotSandIsland, "HotSandIsland")
+	TestRunner.assertEqual(palmFinish.HotSandTint, "HotSandTint")
+	TestRunner.assertEqual(palmFinish.PalmUpperFallCatch, "PalmUpperFallCatch")
 	TestRunner.assertTrue((palmFinish :: any).NewValue == nil)
+end)
+
+TestRunner.test("Progression checkpoint definitions are frozen and exactly ordered", function()
+	local progression = WorldConfig.Progression
+	local checkpoints = progression.Checkpoints
+	local expected = {
+		{
+			Scene = WorldConfig.Scenes.HotBeach,
+			Folder = WorldConfig.CommonFolders.Start,
+			Name = WorldConfig.HotBeach.StartSpawn,
+			Id = "Start",
+			Order = 1,
+		},
+		{
+			Scene = WorldConfig.Scenes.HotBeach,
+			Folder = WorldConfig.CommonFolders.Triggers,
+			Name = WorldConfig.HotBeach.WaterStartCheckpoint,
+			Id = WorldConfig.HotBeach.WaterStartCheckpointId,
+			Order = 2,
+		},
+		{
+			Scene = WorldConfig.Scenes.Water,
+			Folder = WorldConfig.CommonFolders.Triggers,
+			Name = WorldConfig.Water.LaserIslandStartCheckpoint,
+			Id = WorldConfig.Water.LaserIslandStartCheckpointId,
+			Order = 3,
+		},
+		{
+			Scene = WorldConfig.Scenes.LaserIsland,
+			Folder = WorldConfig.CommonFolders.Triggers,
+			Name = WorldConfig.LaserIsland.PalmBaseCheckpoint,
+			Id = WorldConfig.LaserIsland.PalmBaseCheckpointId,
+			Order = 4,
+		},
+	}
+
+	TestRunner.assertTrue(table.isfrozen(progression))
+	TestRunner.assertTrue(table.isfrozen(checkpoints))
+	TestRunner.assertEqual(#checkpoints, 4)
+
+	for index, expectedDefinition in expected do
+		local definition = checkpoints[index]
+		local fieldCount = 0
+		TestRunner.assertTrue(table.isfrozen(definition))
+		for _ in definition do fieldCount += 1 end
+		TestRunner.assertEqual(fieldCount, 5)
+		TestRunner.assertEqual(definition.Scene, expectedDefinition.Scene)
+		TestRunner.assertEqual(definition.Folder, expectedDefinition.Folder)
+		TestRunner.assertEqual(definition.Name, expectedDefinition.Name)
+		TestRunner.assertEqual(definition.Id, expectedDefinition.Id)
+		TestRunner.assertEqual(definition.Order, expectedDefinition.Order)
+	end
+
+	TestRunner.assertEqual(checkpoints[1].Id, "Start")
+	TestRunner.assertEqual(checkpoints[2].Id, "WaterStart")
+	TestRunner.assertEqual(checkpoints[3].Id, "LaserIslandStart")
+	TestRunner.assertEqual(checkpoints[4].Id, "PalmBase")
+	TestRunner.assertTrue((checkpoints :: any)[5] == nil)
+end)
+
+TestRunner.test("Progression finish definition is frozen and stable", function()
+	local finish = WorldConfig.Progression.Finish
+	local fieldCount = 0
+	for _ in finish do fieldCount += 1 end
+
+	TestRunner.assertTrue(table.isfrozen(finish))
+	TestRunner.assertEqual(fieldCount, 4)
+	TestRunner.assertEqual(finish.Scene, WorldConfig.Scenes.PalmFinish)
+	TestRunner.assertEqual(finish.Folder, WorldConfig.CommonFolders.Triggers)
+	TestRunner.assertEqual(finish.Name, WorldConfig.PalmFinish.FinishLine)
+	TestRunner.assertEqual(finish.Name, "FinishLine")
+	TestRunner.assertEqual(finish.RequiredCheckpointOrder, 4)
+end)
+
+TestRunner.test("Progression config is recursively frozen and data only", function()
+	local visited: { [any]: boolean } = {}
+
+	local function inspect(value: any)
+		local valueType = typeof(value)
+		if valueType == "table" then
+			TestRunner.assertTrue(table.isfrozen(value))
+			if visited[value] then return end
+			visited[value] = true
+			for key, child in value do
+				inspect(key)
+				inspect(child)
+			end
+			return
+		end
+
+		TestRunner.assertTrue(valueType == "string" or valueType == "number" or valueType == "boolean")
+		TestRunner.assertFalse(valueType == "Instance")
+		TestRunner.assertFalse(valueType == "Vector3")
+		TestRunner.assertFalse(valueType == "CFrame")
+		TestRunner.assertFalse(valueType == "function")
+		TestRunner.assertFalse(valueType == "thread")
+		TestRunner.assertFalse(valueType == "userdata")
+	end
+
+	inspect(WorldConfig.Progression)
+end)
+
+TestRunner.test("Scene CoinIds resolve exactly sixteen unique final names", function()
+	local sceneContracts = {
+		{
+			Actual = WorldConfig.HotBeach.CoinIds,
+			Expected = { "DemoCoin", "HotBeachCoin01", "HotBeachCoin02", "HotBeachCoin03" },
+		},
+		{
+			Actual = WorldConfig.Water.CoinIds,
+			Expected = { "WaterCoin01", "WaterCoin02", "WaterCoin03", "WaterCoin04" },
+		},
+		{
+			Actual = WorldConfig.LaserIsland.CoinIds,
+			Expected = {
+				"LaserIslandCoin01",
+				"LaserIslandCoin02",
+				"LaserIslandCoin03",
+				"LaserIslandCoin04",
+				"LaserIslandCoin05",
+			},
+		},
+		{
+			Actual = WorldConfig.PalmFinish.CoinIds,
+			Expected = { "PalmCoin01", "PalmCoin02", "PalmCoin03" },
+		},
+	}
+	local expectedSceneCounts = { 4, 4, 5, 3 }
+	local seen: { [string]: boolean } = {}
+	local total = 0
+
+	for sceneIndex, contract in sceneContracts do
+		TestRunner.assertEqual(#contract.Actual, expectedSceneCounts[sceneIndex])
+		TestRunner.assertEqual(#contract.Actual, #contract.Expected)
+		for index, expectedId in contract.Expected do
+			local coinId = contract.Actual[index]
+			TestRunner.assertTrue(typeof(coinId) == "string")
+			TestRunner.assertTrue(coinId ~= "")
+			TestRunner.assertEqual(coinId, expectedId)
+			TestRunner.assertFalse(seen[coinId] == true, string.format("Duplicate CoinId %q", coinId))
+			TestRunner.assertTrue(string.match(coinId, "Marker$") == nil)
+			seen[coinId] = true
+			total += 1
+		end
+	end
+
+	TestRunner.assertEqual(total, 16)
 end)
 
 return true

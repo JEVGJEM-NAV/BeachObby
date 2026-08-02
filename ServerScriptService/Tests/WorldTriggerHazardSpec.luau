@@ -10,9 +10,11 @@ local GameSessionService = require(ServerScriptService.Services.GameSessionServi
 local WorldTriggerService = require(ServerScriptService.Services.WorldTriggerService)
 local TestRunner = require(script.Parent.TestRunner)
 
-local verticalSlice = Workspace:WaitForChild("BeachObby"):WaitForChild("VerticalSlice")
-local startSpawn = verticalSlice:WaitForChild("StartSpawn") :: BasePart
-local midCheckpoint = verticalSlice:WaitForChild("Triggers"):WaitForChild("MidCheckpoint") :: BasePart
+local world = Workspace:WaitForChild("BeachObby"):WaitForChild("World")
+local startSpawn = world:WaitForChild("Scene01_HotBeach"):WaitForChild("Start"):WaitForChild("StartSpawn") :: BasePart
+local waterStartCheckpoint = world:WaitForChild("Scene01_HotBeach")
+	:WaitForChild("Triggers")
+	:WaitForChild("WaterStartCheckpoint") :: BasePart
 
 type CleanupCallback = () -> ()
 type AddCleanup = (CleanupCallback) -> ()
@@ -345,16 +347,16 @@ testWithCleanup("WorldTriggerService Hazard does not change current checkpoint",
 	local service = GameSessionService.new(startSpawn)
 	service:CreateSession(player)
 	service:StartRun(player, 130)
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 	local harness, hazard = startHazardHarness(addCleanup, "CheckpointStateHazard", service)
 	harness.mapCharacter(character, player)
 	harness.fireTouch(hazard, rootPart)
 
 	local placementCharacter = createCharacter(addCleanup, "CheckpointPlacementCharacter", false)
 	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, placementCharacter))
-	local offset = midCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	local offset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
 	TestRunner.assertTrue(
-		(placementCharacter:GetPivot().Position - (midCheckpoint.CFrame + offset).Position).Magnitude < 0.01
+		(placementCharacter:GetPivot().Position - (waterStartCheckpoint.CFrame + offset).Position).Magnitude < 0.01
 	)
 end)
 

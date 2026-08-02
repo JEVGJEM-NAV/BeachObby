@@ -103,12 +103,6 @@ local function aabbsIntersect(a: Aabb, b: Aabb): boolean
 		and a.max.Z >= b.min.Z
 end
 
-local function horizontalAabbGap(a: Aabb, b: Aabb): number
-	local xGap = math.max(a.min.X - b.max.X, b.min.X - a.max.X, 0)
-	local zGap = math.max(a.min.Z - b.max.Z, b.min.Z - a.max.Z, 0)
-	return math.sqrt(xGap * xGap + zGap * zGap)
-end
-
 local function assertVectorNear(actual: Vector3, expected: Vector3, tolerance: number, message: string)
 	TestRunner.assertTrue(
 		(actual - expected).Magnitude <= tolerance,
@@ -119,11 +113,29 @@ end
 TestRunner.test("HotBeach HotSandVisual is passive and untagged", function()
 	local geometry = expectChild(scene, "Geometry", "Folder")
 	local visual = expectChild(geometry, "HotSandVisual", "Part") :: BasePart
+	local footprint = expectChild(geometry, "SceneFootprint", "Part") :: BasePart
+	TestRunner.assertEqual(visual.CFrame, CFrame.new(111, 1.05, -22))
+	TestRunner.assertEqual(visual.Size, Vector3.new(32, 0.1, 46))
 	TestRunner.assertEqual(visual.Material, Enum.Material.Sand)
+	TestRunner.assertEqual(visual.MaterialVariant, "")
+	TestRunner.assertEqual(visual.Color, Color3.fromRGB(216, 178, 105))
+	TestRunner.assertEqual(visual.Transparency, 0)
+	TestRunner.assertEqual(visual.Reflectance, 0)
+	TestRunner.assertTrue(visual.Anchored)
 	TestRunner.assertFalse(visual.CanCollide)
 	TestRunner.assertFalse(visual.CanTouch)
 	TestRunner.assertFalse(visual.CanQuery)
+	TestRunner.assertFalse(visual.CastShadow)
 	assertNoTagsOrAttributes(visual)
+	TestRunner.assertEqual(#visual:GetChildren(), 0)
+	TestRunner.assertEqual(footprint.CFrame, CFrame.new(111, 0.5, -22))
+	TestRunner.assertEqual(footprint.Size, Vector3.new(32, 1, 80))
+	TestRunner.assertTrue(footprint.Anchored and footprint.CanCollide and footprint.CanQuery)
+	TestRunner.assertFalse(footprint.CanTouch)
+	assertNoTagsOrAttributes(footprint)
+	TestRunner.assertTrue(math.abs(visual.Position.Y + visual.Size.Y / 2 - 1.1) <= 0.001)
+	TestRunner.assertTrue(math.abs(footprint.Position.Y + footprint.Size.Y / 2 - 1) <= 0.001)
+	TestRunner.assertTrue(math.abs((visual.Position.Y + visual.Size.Y / 2) - (footprint.Position.Y + footprint.Size.Y / 2) - 0.1) <= 0.001)
 end)
 
 TestRunner.test("HotBeach has exactly four Hazard-tagged objects", function()
@@ -141,14 +153,18 @@ TestRunner.test("HotBeach has exactly four Hazard-tagged objects", function()
 		expectedHazards[(runner :: Model).Hitbox] = true
 	end
 
+	for expectedHazard in expectedHazards do
+		local expectedTags = CollectionService:GetTags(expectedHazard)
+		TestRunner.assertEqual(#expectedTags, 1)
+		TestRunner.assertEqual(expectedTags[1], RunConfig.Tags.Hazard)
+		TestRunner.assertEqual(next(expectedHazard:GetAttributes()), nil)
+	end
+
 	local taggedCount = 0
 	for _, descendant in scene:GetDescendants() do
-		if #CollectionService:GetTags(descendant) > 0 then
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
 			taggedCount += 1
 			TestRunner.assertTrue(expectedHazards[descendant] == true)
-			local descendantTags = CollectionService:GetTags(descendant)
-			TestRunner.assertEqual(#descendantTags, 1)
-			TestRunner.assertEqual(descendantTags[1], RunConfig.Tags.Hazard)
 		end
 	end
 	TestRunner.assertEqual(taggedCount, 4)
@@ -156,11 +172,30 @@ end)
 
 TestRunner.test("HotBeach HotSandHazard has safe trigger properties", function()
 	local hazard = scene.Hazards.HotSandHazard :: BasePart
+	local visual = scene.Geometry.HotSandVisual :: BasePart
+	TestRunner.assertEqual(hazard.CFrame, CFrame.new(111, 1.25, -22))
+	TestRunner.assertEqual(hazard.Size, Vector3.new(32, 0.3, 46))
+	TestRunner.assertEqual(hazard.Material, Enum.Material.Neon)
+	TestRunner.assertEqual(hazard.MaterialVariant, "")
+	TestRunner.assertEqual(hazard.Color, Color3.fromRGB(235, 92, 42))
+	TestRunner.assertTrue(math.abs(hazard.Transparency - 0.65) <= 0.001)
+	TestRunner.assertEqual(hazard.Reflectance, 0)
 	TestRunner.assertTrue(hazard.Anchored)
 	TestRunner.assertTrue(hazard.CanTouch)
 	TestRunner.assertTrue(hazard.CanQuery)
 	TestRunner.assertFalse(hazard.CanCollide)
+	TestRunner.assertFalse(hazard.CastShadow)
 	TestRunner.assertEqual(next(hazard:GetAttributes()), nil)
+	local tags = CollectionService:GetTags(hazard)
+	TestRunner.assertEqual(#tags, 1)
+	TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
+	local touchTransmitterCount = 0
+	for _, child in hazard:GetChildren() do
+		TestRunner.assertTrue(child:IsA("TouchTransmitter"))
+		touchTransmitterCount += 1
+	end
+	TestRunner.assertTrue(touchTransmitterCount <= 1)
+	TestRunner.assertTrue(math.abs((hazard.Position.Y - hazard.Size.Y / 2) - (visual.Position.Y + visual.Size.Y / 2)) <= 0.001)
 end)
 
 TestRunner.test("HotBeach platforms do not overlap HotSandHazard", function()
@@ -308,39 +343,47 @@ TestRunner.test("HotBeach has six passive Runner path markers", function()
 	end
 end)
 
-TestRunner.test("HotBeach coin position markers are passive", function()
-	local markers = {
-		expectChild(scene.Start, "DemoCoinPosition", "Part"),
-		expectChild(scene.Coins, "HotBeachCoin01Position", "Part"),
-		expectChild(scene.Coins, "HotBeachCoin02Position", "Part"),
-		expectChild(scene.Coins, "HotBeachCoin03Position", "Part"),
+TestRunner.test("HotBeach coins are active with final CoinIds", function()
+	local coins = {
+		expectChild(scene.Start, "DemoCoin", "Part"),
+		expectChild(scene.Coins, "HotBeachCoin01", "Part"),
+		expectChild(scene.Coins, "HotBeachCoin02", "Part"),
+		expectChild(scene.Coins, "HotBeachCoin03", "Part"),
 	}
 
-	for _, marker in markers do
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
-		TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.CoinId), nil)
-		assertNoTagsOrAttributes(marker)
+	for _, coin in coins do
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(#CollectionService:GetTags(coin), 1)
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), coin.Name)
+		TestRunner.assertTrue((coin :: BasePart).CanTouch and (coin :: BasePart).CanQuery)
+		TestRunner.assertFalse((coin :: BasePart).CanCollide)
 	end
+	TestRunner.assertTrue(scene.Start:FindFirstChild("DemoCoinPosition") == nil)
+	for index = 1, 3 do TestRunner.assertTrue(scene.Coins:FindFirstChild(string.format("HotBeachCoin%02dPosition", index)) == nil) end
 end)
 
-TestRunner.test("HotBeach WaterStart checkpoint marker is passive", function()
-	local marker = expectChild(scene.Triggers, "WaterStartCheckpointMarker", "Part") :: BasePart
-	TestRunner.assertFalse(marker.CanTouch)
-	TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Checkpoint))
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.CheckpointId), nil)
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.CheckpointOrder), nil)
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.RespawnOffset), nil)
-	assertNoTagsOrAttributes(marker)
+TestRunner.test("HotBeach WaterStart checkpoint is active", function()
+	local checkpoint = expectChild(scene.Triggers, "WaterStartCheckpoint", "Part") :: BasePart
+	TestRunner.assertTrue(checkpoint.CanTouch and checkpoint.CanQuery)
+	TestRunner.assertFalse(checkpoint.CanCollide)
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(#CollectionService:GetTags(checkpoint), 1)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "WaterStart")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 2)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+	TestRunner.assertTrue(scene.Triggers:FindFirstChild("WaterStartCheckpointMarker") == nil)
 end)
 
 TestRunner.test("HotBeach contains no scripts and every world Part is anchored", function()
+	local spawnCount = 0
 	for _, descendant in scene:GetDescendants() do
 		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"), descendant:GetFullName() .. " must not be a script")
-		TestRunner.assertFalse(descendant:IsA("SpawnLocation"), descendant:GetFullName() .. " must not be a SpawnLocation")
+		if descendant:IsA("SpawnLocation") then spawnCount += 1; TestRunner.assertEqual(descendant, scene.Start.StartSpawn) end
 		if descendant:IsA("BasePart") then
 			TestRunner.assertTrue(descendant.Anchored, descendant:GetFullName() .. " must be anchored")
 		end
 	end
+	TestRunner.assertEqual(spawnCount, 1)
 end)
 
 TestRunner.test("HotBeach hierarchy has no duplicate immediate child names", function()
@@ -353,78 +396,84 @@ TestRunner.test("HotBeach hierarchy has no duplicate immediate child names", fun
 	end
 end)
 
-TestRunner.test("HotBeach regression accepts Phase 2.7 Palm hazard and keeps Phase 2.8 inactive", function()
+TestRunner.test("HotBeach regression accepts Palm hazard and final World progression", function()
 	local palmScene = expectChild(world, WorldConfig.Scenes.PalmFinish, "Model")
-	local palmFallCatch = expectChild(palmScene.Hazards, WorldConfig.PalmFinish.PalmFallCatch, "Part")
+	local hazards = expectChild(palmScene, "Hazards", "Folder")
+	local expectedHazardNames = {
+		[WorldConfig.PalmFinish.PalmFallCatch] = true,
+		[WorldConfig.PalmFinish.PalmUpperFallCatch] = true,
+	}
+	local seenHazardNames: { [string]: boolean } = {}
+	local hazardChildren = hazards:GetChildren()
+	TestRunner.assertEqual(#hazardChildren, 2)
+	for _, hazard in hazardChildren do
+		TestRunner.assertTrue(hazard:IsA("Part"))
+		TestRunner.assertTrue(expectedHazardNames[hazard.Name] == true)
+		TestRunner.assertFalse(seenHazardNames[hazard.Name] == true)
+		seenHazardNames[hazard.Name] = true
+		local tags = CollectionService:GetTags(hazard)
+		TestRunner.assertEqual(#tags, 1)
+		TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
+	end
+	for expectedName in expectedHazardNames do TestRunner.assertTrue(seenHazardNames[expectedName] == true) end
+
 	local hazardCount = 0
 	for _, descendant in palmScene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
 			hazardCount += 1
-			TestRunner.assertEqual(descendant, palmFallCatch)
+			TestRunner.assertEqual(descendant.Parent, hazards)
+			TestRunner.assertTrue(expectedHazardNames[descendant.Name] == true)
 		end
 		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
 		TestRunner.assertFalse(descendant:IsA("SpawnLocation"))
-		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
-		if descendant == palmFallCatch then
-			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 1)
-			TestRunner.assertTrue(CollectionService:HasTag(descendant, RunConfig.Tags.Hazard))
-			TestRunner.assertTrue((descendant :: BasePart).CanTouch)
-		else
-			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 0)
-			if descendant:IsA("BasePart") then TestRunner.assertFalse(descendant.CanTouch) end
-		end
 		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant.Anchored) end
 	end
-	TestRunner.assertEqual(hazardCount, 1)
-	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
-	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
-	TestRunner.assertEqual(next(checkpoint:GetAttributes()), nil)
-	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
-		local marker = palmScene.Coins[name]
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
-		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	TestRunner.assertEqual(hazardCount, 2)
+	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpoint]
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	for _, name in WorldConfig.PalmFinish.CoinIds do
+		local coin = palmScene.Coins[name]
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), name)
 	end
-	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishPlaceholder]
-	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
-	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
+	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishLine]
+	TestRunner.assertTrue(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertEqual(finish:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder), 4)
 end)
 
-TestRunner.test("VerticalSlice retains its accepted active objects", function()
-	local verticalSlice = beachObby:FindFirstChild("VerticalSlice")
-	TestRunner.assertTrue(verticalSlice ~= nil)
-	local expected = {
-		StartSpawn = RunConfig.Tags.Checkpoint,
-		StartLine = RunConfig.Tags.RunStart,
-		MidCheckpoint = RunConfig.Tags.Checkpoint,
-		KillBlock = RunConfig.Tags.Hazard,
-		DemoCoin = RunConfig.Tags.Coin,
-		FinishLine = RunConfig.Tags.Finish,
-	}
+TestRunner.test("HotBeach release root contains only World", function()
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:GetChildren()[1], world)
+	TestRunner.assertTrue(world:IsA("Model"))
+end)
 
-	for name, tag in expected do
-		TestRunner.assertEqual(countNamedDescendants(verticalSlice :: Instance, name), 1)
-		local instance = (verticalSlice :: Instance):FindFirstChild(name, true)
-		TestRunner.assertTrue(instance ~= nil and CollectionService:HasTag(instance, tag))
+TestRunner.test("HotBeach release hierarchy recursively excludes VerticalSlice and KillBlock", function()
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice") == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
+end)
+
+TestRunner.test("HotBeach release geometry and Hazards remain entirely under World", function()
+	for _, descendant in beachObby:GetDescendants() do
+		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant:IsDescendantOf(world)) end
 	end
-end)
-
-TestRunner.test("World and VerticalSlice bounding boxes do not intersect", function()
-	TestRunner.assertFalse(aabbsIntersect(getAabb(world), getAabb(beachObby.VerticalSlice)))
-end)
-
-TestRunner.test("World has at least sixty studs of horizontal clearance from VerticalSlice", function()
-	local gap = horizontalAabbGap(getAabb(world), getAabb(beachObby.VerticalSlice))
-	TestRunner.assertTrue(gap >= 60, string.format("World clearance is only %.3f studs", gap))
+	local hazardCount = 0
+	for _, hazard in CollectionService:GetTagged(RunConfig.Tags.Hazard) do
+		TestRunner.assertTrue(hazard:IsDescendantOf(world))
+		hazardCount += 1
+	end
+	TestRunner.assertEqual(hazardCount, 10)
 end)
 
 TestRunner.test("StartSpawn AABB does not intersect HotSandHazard", function()
-	local startSpawn = beachObby.VerticalSlice.StartSpawn
+	local startSpawn = scene.Start.StartSpawn
 	local hazard = scene.Hazards.HotSandHazard
 	TestRunner.assertFalse(aabbsIntersect(getAabb(startSpawn), getAabb(hazard)))
 end)
 
 TestRunner.test("Hot sand is outside the conservative StartSpawn character envelope", function()
-	local startSpawn = beachObby.VerticalSlice.StartSpawn
+	local startSpawn = scene.Start.StartSpawn
 	local spawnBounds = getAabb(startSpawn)
 	local spawnEnvelope = {
 		min = Vector3.new(spawnBounds.min.X - 4, spawnBounds.max.Y, spawnBounds.min.Z - 4),
@@ -460,56 +509,15 @@ TestRunner.test("World scene anchor positions retain the accepted Phase 2.7 layo
 	end
 end)
 
-TestRunner.test("VerticalSlice geometry tags and attributes retain the accepted fixture contract", function()
-	local verticalSlice = beachObby.VerticalSlice
-	local expected = {
-		StartSpawn = {
-			cframe = CFrame.new(0, 0.5, 0), size = Vector3.new(12, 1, 12), tag = RunConfig.Tags.Checkpoint,
-			attributes = { CheckpointId = "Start", CheckpointOrder = 1, RespawnOffset = Vector3.new(0, 4, 0) },
-		},
-		StartLine = {
-			cframe = CFrame.new(0, 3, -12), size = Vector3.new(16, 6, 1), tag = RunConfig.Tags.RunStart,
-			attributes = {},
-		},
-		MidCheckpoint = {
-			cframe = CFrame.new(0, 0.5, -28), size = Vector3.new(12, 1, 4), tag = RunConfig.Tags.Checkpoint,
-			attributes = { CheckpointId = "Mid", CheckpointOrder = 2, RespawnOffset = Vector3.new(0, 4, 0) },
-		},
-		KillBlock = {
-			cframe = CFrame.new(0, 0.5, -20), size = Vector3.new(10, 1, 10), tag = RunConfig.Tags.Hazard,
-			attributes = {},
-		},
-		DemoCoin = {
-			cframe = CFrame.new(0, 2.5, -38), size = Vector3.new(2.5, 2.5, 2.5), tag = RunConfig.Tags.Coin,
-			attributes = { CoinId = "DemoCoin" },
-		},
-		FinishLine = {
-			cframe = CFrame.new(0, 0.5, -48), size = Vector3.new(12, 1, 4), tag = RunConfig.Tags.Finish,
-			attributes = { RequiredCheckpointOrder = 2 },
-		},
-	}
-
-	for name, contract in expected do
-		local part = verticalSlice:FindFirstChild(name, true)
-		TestRunner.assertTrue(part ~= nil and part:IsA("BasePart"))
-		local basePart = part :: BasePart
-		TestRunner.assertEqual(basePart.CFrame, contract.cframe)
-		TestRunner.assertEqual(basePart.Size, contract.size)
-		local tags = CollectionService:GetTags(basePart)
-		TestRunner.assertEqual(#tags, 1)
-		TestRunner.assertEqual(tags[1], contract.tag)
-		local attributes = basePart:GetAttributes()
-		local attributeCount = 0
-		for _ in attributes do
-			attributeCount += 1
-		end
-		local expectedAttributeCount = 0
-		for attributeName, expectedValue in contract.attributes do
-			expectedAttributeCount += 1
-			TestRunner.assertEqual(attributes[attributeName], expectedValue)
-		end
-		TestRunner.assertEqual(attributeCount, expectedAttributeCount)
+TestRunner.test("HotBeach final Hazard totals match the sole-World release", function()
+	local worldHazards = 0
+	for _, descendant in world:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then worldHazards += 1 end
 	end
+	TestRunner.assertEqual(worldHazards, 10)
+	TestRunner.assertEqual(#CollectionService:GetTagged(RunConfig.Tags.Hazard), 10)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
 end)
 
 return true

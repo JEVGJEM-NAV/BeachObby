@@ -1,5 +1,6 @@
 --!strict
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
@@ -8,9 +9,16 @@ local RunConfig = require(ReplicatedStorage.BeachObby.Shared.RunConfig)
 local GameSessionService = require(ServerScriptService.Services.GameSessionService)
 local TestRunner = require(script.Parent.TestRunner)
 
-local verticalSlice = Workspace:WaitForChild("BeachObby"):WaitForChild("VerticalSlice")
-local startSpawn = verticalSlice:WaitForChild("StartSpawn") :: BasePart
-local midCheckpoint = verticalSlice:WaitForChild("Triggers"):WaitForChild("MidCheckpoint") :: BasePart
+local world = Workspace:WaitForChild("BeachObby"):WaitForChild("World")
+local hotBeach = world:WaitForChild("Scene01_HotBeach")
+local startSpawn = hotBeach:WaitForChild("Start"):WaitForChild("StartSpawn") :: BasePart
+local waterStartCheckpoint = hotBeach:WaitForChild("Triggers"):WaitForChild("WaterStartCheckpoint") :: BasePart
+local laserIslandStartCheckpoint = world:WaitForChild("Scene02_Water")
+	:WaitForChild("Triggers")
+	:WaitForChild("LaserIslandStartCheckpoint") :: BasePart
+local palmBaseCheckpoint = world:WaitForChild("Scene03_LaserIsland")
+	:WaitForChild("Triggers")
+	:WaitForChild("PalmBaseCheckpoint") :: BasePart
 
 local function createPlayerIdentity(name: string): Player
 	return ({ Name = name } :: any) :: Player
@@ -29,7 +37,8 @@ local function createCheckpoint(
 	checkpointId: any,
 	checkpointOrder: any,
 	respawnOffset: any,
-	position: Vector3?
+	position: Vector3?,
+	addTag: boolean?
 ): Part
 	local checkpoint = Instance.new("Part")
 	checkpoint.Name = name
@@ -39,7 +48,15 @@ local function createCheckpoint(
 	checkpoint:SetAttribute(RunConfig.Attributes.CheckpointOrder, checkpointOrder)
 	checkpoint:SetAttribute(RunConfig.Attributes.RespawnOffset, respawnOffset)
 	checkpoint.Parent = Workspace
+	if addTag ~= false then
+		CollectionService:AddTag(checkpoint, RunConfig.Tags.Checkpoint)
+	end
 	return checkpoint
+end
+
+local function destroyCheckpoint(checkpoint: Part)
+	CollectionService:RemoveTag(checkpoint, RunConfig.Tags.Checkpoint)
+	checkpoint:Destroy()
 end
 
 local function createCharacter(name: string): Model
@@ -65,6 +82,18 @@ local function assertVectorClose(actual: Vector3, expected: Vector3, tolerance: 
 	)
 end
 
+local function assertSnapshotsEqual(actual: any, expected: any)
+	TestRunner.assertEqual(actual.revision, expected.revision)
+	TestRunner.assertEqual(actual.phase, expected.phase)
+	TestRunner.assertEqual(actual.startedAtServerTime, expected.startedAtServerTime)
+	TestRunner.assertEqual(actual.finishedElapsedSeconds, expected.finishedElapsedSeconds)
+	TestRunner.assertEqual(actual.coinCount, expected.coinCount)
+	TestRunner.assertEqual(#actual.collectedCoinIds, #expected.collectedCoinIds)
+	for index, coinId in expected.collectedCoinIds do
+		TestRunner.assertEqual(actual.collectedCoinIds[index], coinId)
+	end
+end
+
 TestRunner.test("GameSessionService session begins at Start checkpoint order 1", function()
 	local service, player = createRunningSession("InitialCheckpoint", 10)
 	local sameOrderCheckpoint = createCheckpoint("SameOrder", "OtherStart", 1, Vector3.new(0, 4, 0))
@@ -72,7 +101,7 @@ TestRunner.test("GameSessionService session begins at Start checkpoint order 1",
 	TestRunner.assertEqual(service:ReachCheckpoint(player, sameOrderCheckpoint), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, 1)
 
-	sameOrderCheckpoint:Destroy()
+	destroyCheckpoint(sameOrderCheckpoint)
 end)
 
 TestRunner.test("GameSessionService ignores checkpoint before start", function()
@@ -80,13 +109,13 @@ TestRunner.test("GameSessionService ignores checkpoint before start", function()
 	local player = createPlayerIdentity("CheckpointBeforeStart")
 	service:CreateSession(player)
 
-	TestRunner.assertEqual(service:ReachCheckpoint(player, midCheckpoint), nil)
+	TestRunner.assertEqual(service:ReachCheckpoint(player, waterStartCheckpoint), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, 0)
 end)
 
-TestRunner.test("GameSessionService accepts MidCheckpoint while running", function()
+TestRunner.test("GameSessionService accepts WaterStartCheckpoint while running", function()
 	local service, player = createRunningSession("AcceptMid", 20)
-	local snapshot = service:ReachCheckpoint(player, midCheckpoint)
+	local snapshot = service:ReachCheckpoint(player, waterStartCheckpoint)
 
 	TestRunner.assertTrue(snapshot ~= nil)
 	TestRunner.assertEqual((snapshot :: any).phase, RunConfig.Phases.Running)
@@ -95,22 +124,22 @@ end)
 TestRunner.test("GameSessionService checkpoint increments revision exactly once", function()
 	local service, player = createRunningSession("CheckpointRevision", 30)
 	local before = service:GetSnapshot(player) :: any
-	local after = service:ReachCheckpoint(player, midCheckpoint) :: any
+	local after = service:ReachCheckpoint(player, waterStartCheckpoint) :: any
 
 	TestRunner.assertEqual(after.revision, before.revision + 1)
 end)
 
-TestRunner.test("GameSessionService ignores repeated MidCheckpoint", function()
+TestRunner.test("GameSessionService ignores repeated WaterStartCheckpoint", function()
 	local service, player = createRunningSession("RepeatedMid", 40)
-	local first = service:ReachCheckpoint(player, midCheckpoint) :: any
+	local first = service:ReachCheckpoint(player, waterStartCheckpoint) :: any
 
-	TestRunner.assertEqual(service:ReachCheckpoint(player, midCheckpoint), nil)
+	TestRunner.assertEqual(service:ReachCheckpoint(player, waterStartCheckpoint), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, first.revision)
 end)
 
-TestRunner.test("GameSessionService does not roll back from MidCheckpoint to StartSpawn", function()
+TestRunner.test("GameSessionService does not roll back from WaterStartCheckpoint to StartSpawn", function()
 	local service, player = createRunningSession("NoRollback", 50)
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 	local revisionAtMid = (service:GetSnapshot(player) :: any).revision
 
 	TestRunner.assertEqual(service:ReachCheckpoint(player, startSpawn), nil)
@@ -119,14 +148,14 @@ end)
 
 TestRunner.test("GameSessionService checkpoint preserves startedAtServerTime", function()
 	local service, player = createRunningSession("PreserveStartTime", 123.45)
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).startedAtServerTime, 123.45)
 end)
 
 TestRunner.test("GameSessionService checkpoint preserves coinCount", function()
 	local service, player = createRunningSession("PreserveCoins", 60)
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).coinCount, 0)
 end)
@@ -142,13 +171,13 @@ TestRunner.test("GameSessionService keeps player checkpoints independent", funct
 	service:CreateSession(secondPlayer)
 	service:StartRun(firstPlayer, 70)
 	service:StartRun(secondPlayer, 80)
-	service:ReachCheckpoint(secondPlayer, midCheckpoint)
+	service:ReachCheckpoint(secondPlayer, waterStartCheckpoint)
 	service:PlaceCharacterAtCheckpoint(firstPlayer, firstCharacter)
 	service:PlaceCharacterAtCheckpoint(secondPlayer, secondCharacter)
 
-	local respawnOffset = midCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	local respawnOffset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
 	assertVectorClose(firstCharacter:GetPivot().Position, startSpawn.Position + Vector3.new(0, 4, 0))
-	assertVectorClose(secondCharacter:GetPivot().Position, midCheckpoint.Position + respawnOffset)
+	assertVectorClose(secondCharacter:GetPivot().Position, waterStartCheckpoint.Position + respawnOffset)
 
 	firstCharacter:Destroy()
 	secondCharacter:Destroy()
@@ -156,7 +185,7 @@ end)
 
 TestRunner.test("GameSessionService checkpoint snapshot excludes checkpoint Instance", function()
 	local service, player = createRunningSession("CheckpointSnapshot", 90)
-	local snapshot = service:ReachCheckpoint(player, midCheckpoint) :: any
+	local snapshot = service:ReachCheckpoint(player, waterStartCheckpoint) :: any
 
 	TestRunner.assertEqual(snapshot.currentCheckpoint, nil)
 	TestRunner.assertEqual(snapshot.currentCheckpointId, nil)
@@ -175,7 +204,7 @@ TestRunner.test("GameSessionService rejects invalid CheckpointId", function()
 	TestRunner.assertEqual(service:ReachCheckpoint(player, checkpoint), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, 1)
 
-	checkpoint:Destroy()
+	destroyCheckpoint(checkpoint)
 end)
 
 TestRunner.test("GameSessionService rejects invalid CheckpointOrder", function()
@@ -187,8 +216,8 @@ TestRunner.test("GameSessionService rejects invalid CheckpointOrder", function()
 	TestRunner.assertEqual(service:ReachCheckpoint(player, fractionalOrder), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, 1)
 
-	zeroOrder:Destroy()
-	fractionalOrder:Destroy()
+	destroyCheckpoint(zeroOrder)
+	destroyCheckpoint(fractionalOrder)
 end)
 
 TestRunner.test("GameSessionService rejects invalid RespawnOffset", function()
@@ -198,17 +227,17 @@ TestRunner.test("GameSessionService rejects invalid RespawnOffset", function()
 	TestRunner.assertEqual(service:ReachCheckpoint(player, checkpoint), nil)
 	TestRunner.assertEqual((service:GetSnapshot(player) :: any).revision, 1)
 
-	checkpoint:Destroy()
+	destroyCheckpoint(checkpoint)
 end)
 
 TestRunner.test("GameSessionService places character at checkpoint with offset", function()
 	local service, player = createRunningSession("PlaceAtCheckpoint", 130)
 	local character = createCharacter("PlacedCharacter")
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 
 	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
-	local respawnOffset = midCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
-	assertVectorClose(character:GetPivot().Position, midCheckpoint.Position + respawnOffset)
+	local respawnOffset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	assertVectorClose(character:GetPivot().Position, waterStartCheckpoint.Position + respawnOffset)
 
 	character:Destroy()
 end)
@@ -216,7 +245,7 @@ end)
 TestRunner.test("GameSessionService respawn placement preserves run state", function()
 	local service, player = createRunningSession("PlacementPreservesState", 140)
 	local character = createCharacter("StatePreservedCharacter")
-	service:ReachCheckpoint(player, midCheckpoint)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
 	local before = service:GetSnapshot(player) :: any
 
 	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
@@ -236,8 +265,85 @@ TestRunner.test("GameSessionService handles checkpoint operations after session 
 	local character = createCharacter("RemovedSessionCharacter")
 	service:RemoveSession(player)
 
-	TestRunner.assertEqual(service:ReachCheckpoint(player, midCheckpoint), nil)
+	TestRunner.assertEqual(service:ReachCheckpoint(player, waterStartCheckpoint), nil)
 	TestRunner.assertFalse(service:PlaceCharacterAtCheckpoint(player, character))
+
+	character:Destroy()
+end)
+
+TestRunner.test("ReachCheckpoint accepts checkpoint orders 2 3 and 4 only in exact sequence", function()
+	local service, player = createRunningSession("ExactCheckpointSequence", 160)
+	local expectedRevision = 1
+
+	for _, checkpoint in { waterStartCheckpoint, laserIslandStartCheckpoint, palmBaseCheckpoint } do
+		local snapshot = service:ReachCheckpoint(player, checkpoint) :: any
+		expectedRevision += 1
+		TestRunner.assertTrue(snapshot ~= nil)
+		TestRunner.assertEqual(snapshot.revision, expectedRevision)
+		for _, value in snapshot do
+			TestRunner.assertFalse(typeof(value) == "Instance")
+		end
+	end
+end)
+
+TestRunner.test("ReachCheckpoint rejects order 3 while current order is 1 without changing state", function()
+	local service, player = createRunningSession("RejectOrderThreeSkip", 170)
+	local before = service:GetSnapshot(player) :: any
+	local character = createCharacter("RejectOrderThreeCharacter")
+
+	TestRunner.assertEqual(service:ReachCheckpoint(player, laserIslandStartCheckpoint), nil)
+	local after = service:GetSnapshot(player) :: any
+	assertSnapshotsEqual(after, before)
+	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
+	assertVectorClose(character:GetPivot().Position, startSpawn.Position + Vector3.new(0, 4, 0))
+
+	character:Destroy()
+end)
+
+TestRunner.test("ReachCheckpoint rejects order 4 while current order is 2 without changing state", function()
+	local service, player = createRunningSession("RejectOrderFourSkip", 180)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
+	local before = service:GetSnapshot(player) :: any
+	local character = createCharacter("RejectOrderFourCharacter")
+
+	TestRunner.assertEqual(service:ReachCheckpoint(player, palmBaseCheckpoint), nil)
+	local after = service:GetSnapshot(player) :: any
+	assertSnapshotsEqual(after, before)
+	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
+	local offset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	assertVectorClose(character:GetPivot().Position, waterStartCheckpoint.Position + offset)
+
+	character:Destroy()
+end)
+
+TestRunner.test("ReachCheckpoint rejects an untagged checkpoint with otherwise valid attributes", function()
+	local service, player = createRunningSession("RejectUntaggedCheckpoint", 190)
+	local checkpoint = createCheckpoint("UntaggedOrderTwo", "UntaggedOrderTwo", 2, Vector3.new(0, 4, 0), nil, false)
+	local before = service:GetSnapshot(player) :: any
+	local character = createCharacter("RejectUntaggedCharacter")
+
+	TestRunner.assertEqual(service:ReachCheckpoint(player, checkpoint), nil)
+	local after = service:GetSnapshot(player) :: any
+	assertSnapshotsEqual(after, before)
+	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
+	assertVectorClose(character:GetPivot().Position, startSpawn.Position + Vector3.new(0, 4, 0))
+
+	character:Destroy()
+	destroyCheckpoint(checkpoint)
+end)
+
+TestRunner.test("Rejected checkpoint skip keeps respawn at the latest accepted checkpoint", function()
+	local service, player = createRunningSession("RejectedSkipRespawn", 200)
+	service:ReachCheckpoint(player, waterStartCheckpoint)
+	local before = service:GetSnapshot(player) :: any
+	local character = createCharacter("RejectedSkipRespawnCharacter")
+
+	TestRunner.assertEqual(service:ReachCheckpoint(player, palmBaseCheckpoint), nil)
+	local after = service:GetSnapshot(player) :: any
+	assertSnapshotsEqual(after, before)
+	TestRunner.assertTrue(service:PlaceCharacterAtCheckpoint(player, character))
+	local offset = waterStartCheckpoint:GetAttribute(RunConfig.Attributes.RespawnOffset) :: Vector3
+	assertVectorClose(character:GetPivot().Position, waterStartCheckpoint.Position + offset)
 
 	character:Destroy()
 end)

@@ -13,6 +13,7 @@ local world = beachObby:WaitForChild(WorldConfig.Root.World)
 local scene = world:WaitForChild(WorldConfig.Scenes.LaserIsland)
 local scene02 = world:WaitForChild(WorldConfig.Scenes.Water)
 local scene04 = world:WaitForChild(WorldConfig.Scenes.PalmFinish)
+local environment = world:WaitForChild(WorldConfig.Root.Environment)
 
 type Bounds = { min: Vector3, max: Vector3 }
 
@@ -144,9 +145,9 @@ end)
 TestRunner.test("LaserIsland Entry and Exit retain accepted geometry", function()
 	local entry = scene.Geometry.EntryPlatform :: BasePart
 	local exit = scene.Geometry.ExitPlatform :: BasePart
-	assertCFrameClose(entry.CFrame, CFrame.new(111, 1.5000014305114746, -156))
+	assertCFrameClose(entry.CFrame, CFrame.new(111, 1.55, -156))
 	assertVectorClose(entry.Size, Vector3.new(16, 1, 16))
-	assertCFrameClose(exit.CFrame, CFrame.new(139, 1.5000014305114746, -184))
+	assertCFrameClose(exit.CFrame, CFrame.new(139, 1.55, -184))
 	assertVectorClose(exit.Size, Vector3.new(16, 1, 16))
 end)
 
@@ -164,9 +165,11 @@ TestRunner.test("LaserIsland connects Scene02 Entry Island Exit and Scene04", fu
 	} do
 		TestRunner.assertTrue(xzOverlap(getAabb(pair[1]), getAabb(pair[2])))
 	end
-	for _, part in { scene02Exit, entry, island, exit, scene04Entry } do
-		TestRunner.assertTrue(math.abs(getAabb(part).max.Y - 2) <= 0.001)
-	end
+	TestRunner.assertTrue(math.abs(getAabb(scene02Exit).max.Y - 2) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(entry).max.Y - 2.05) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(island).max.Y - 2) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(exit).max.Y - 2.05) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(scene04Entry).max.Y - 2) <= 0.001)
 end)
 
 TestRunner.test("LaserIsland contains one assembly with one continuous LaserBar", function()
@@ -214,16 +217,19 @@ TestRunner.test("LaserIsland LaserBar has the universal non-pushing Hazard contr
 	TestRunner.assertEqual(next(bar:GetAttributes()), nil)
 end)
 
-TestRunner.test("LaserIsland only LaserBar is tagged", function()
+TestRunner.test("LaserIsland only LaserBar is Hazard-tagged", function()
+	local laserBar = scene.Hazards.LaserAssembly.LaserBar
+	local hazardCount = 0
 	for _, descendant in scene:GetDescendants() do
-		local tags = CollectionService:GetTags(descendant)
-		if descendant == scene.Hazards.LaserAssembly.LaserBar then
-			TestRunner.assertEqual(#tags, 1)
-			TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
-		else
-			TestRunner.assertEqual(#tags, 0, descendant:GetFullName() .. " must be untagged")
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
+			hazardCount += 1
+			TestRunner.assertEqual(descendant, laserBar)
 		end
 	end
+	TestRunner.assertEqual(hazardCount, 1)
+	local tags = CollectionService:GetTags(laserBar)
+	TestRunner.assertEqual(#tags, 1)
+	TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
 end)
 
 TestRunner.test("LaserIsland bar height and landing zones retain safe traversal margins", function()
@@ -235,7 +241,7 @@ TestRunner.test("LaserIsland bar height and landing zones retain safe traversal 
 	TestRunner.assertTrue(36 - radius >= 6)
 end)
 
-TestRunner.test("LaserIsland has five unique passive coin markers", function()
+TestRunner.test("LaserIsland has five unique active coins", function()
 	local seen: { [string]: boolean } = {}
 	local expectedPositions = {
 		Vector3.new(111, 5, -162),
@@ -246,25 +252,32 @@ TestRunner.test("LaserIsland has five unique passive coin markers", function()
 	}
 	TestRunner.assertEqual(#scene.Coins:GetChildren(), 5)
 	for index, name in WorldConfig.LaserIsland.CoinIds do
-		local marker = expectChild(scene.Coins, name, "Part") :: Part
+		local coin = expectChild(scene.Coins, name, "Part") :: Part
 		TestRunner.assertFalse(seen[name] == true)
 		seen[name] = true
-		TestRunner.assertEqual(marker.Shape, Enum.PartType.Ball)
-		assertVectorClose(marker.Size, Vector3.new(1.5, 1.5, 1.5))
-		assertVectorClose(marker.Position, expectedPositions[index])
-		assertPassive(marker)
+		TestRunner.assertEqual(coin.Shape, Enum.PartType.Ball)
+		assertVectorClose(coin.Size, Vector3.new(1.5, 1.5, 1.5))
+		assertVectorClose(coin.Position, expectedPositions[index])
+		TestRunner.assertTrue(coin.Anchored and coin.CanTouch and coin.CanQuery)
+		TestRunner.assertFalse(coin.CanCollide)
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(#CollectionService:GetTags(coin), 1)
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), name)
 	end
 end)
 
-TestRunner.test("LaserIsland PalmBaseCheckpoint remains a passive Phase 2.8 marker", function()
-	local marker = expectChild(scene.Triggers, WorldConfig.LaserIsland.PalmBaseCheckpointMarker, "Part") :: BasePart
-	assertVectorClose(marker.Position, Vector3.new(151, 2.3, -184))
-	assertVectorClose(marker.Size, Vector3.new(4, 0.4, 12))
-	assertPassive(marker)
-	TestRunner.assertTrue(marker:GetAttribute("CheckpointId") == nil)
-	TestRunner.assertTrue(marker:GetAttribute("CheckpointOrder") == nil)
-	TestRunner.assertTrue(marker:GetAttribute("RespawnOffset") == nil)
-	TestRunner.assertTrue(xzOverlap(getAabb(marker), getAabb(scene04.Geometry.EntryPlatform)))
+TestRunner.test("LaserIsland PalmBaseCheckpoint has the final active contract", function()
+	local checkpoint = expectChild(scene.Triggers, WorldConfig.LaserIsland.PalmBaseCheckpoint, "Part") :: BasePart
+	assertVectorClose(checkpoint.Position, Vector3.new(151, 2.3, -184))
+	assertVectorClose(checkpoint.Size, Vector3.new(4, 0.4, 12))
+	TestRunner.assertTrue(checkpoint.Anchored and checkpoint.CanTouch and checkpoint.CanQuery)
+	TestRunner.assertFalse(checkpoint.CanCollide)
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(#CollectionService:GetTags(checkpoint), 1)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "PalmBase")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+	TestRunner.assertTrue(xzOverlap(getAabb(checkpoint), getAabb(scene04.Geometry.EntryPlatform)))
 end)
 
 TestRunner.test("LaserIsland contains no scripts attributes constraints or movers", function()
@@ -272,7 +285,10 @@ TestRunner.test("LaserIsland contains no scripts attributes constraints or mover
 		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
 		TestRunner.assertFalse(descendant:IsA("Constraint"))
 		TestRunner.assertFalse(descendant:IsA("BodyMover"))
-		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
+		if not CollectionService:HasTag(descendant, RunConfig.Tags.Coin)
+			and not CollectionService:HasTag(descendant, RunConfig.Tags.Checkpoint) then
+			TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
+		end
 		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant.Anchored) end
 	end
 end)
@@ -280,7 +296,7 @@ end)
 TestRunner.test("LaserIsland stays clear of water rings and sharks", function()
 	local islandBounds = getAabb(scene.Geometry.IslandBase)
 	TestRunner.assertFalse(aabbsIntersect(islandBounds, getAabb(scene02.Geometry.WaterSurface)))
-	TestRunner.assertFalse(aabbsIntersect(islandBounds, getAabb(scene02.Hazards.WaterKillPlane)))
+	TestRunner.assertFalse(aabbsIntersect(islandBounds, getAabb(environment[WorldConfig.Environment.OceanKill])))
 	for _, ring in scene02.Geometry.Rings:GetChildren() do
 		TestRunner.assertFalse(aabbsIntersect(islandBounds, modelAabb(ring :: Model)))
 	end
@@ -289,30 +305,64 @@ TestRunner.test("LaserIsland stays clear of water rings and sharks", function()
 	end
 end)
 
-TestRunner.test("LaserIsland stays clear of VerticalSlice", function()
-	TestRunner.assertFalse(aabbsIntersect(getAabb(scene.Geometry.IslandBase), modelAabb(beachObby.VerticalSlice)))
+TestRunner.test("LaserIsland belongs to the sole World release root without legacy shells", function()
+	TestRunner.assertTrue(scene:IsDescendantOf(world))
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:GetChildren()[1], world)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
 end)
 
-TestRunner.test("LaserIsland preserves Baseplate and TemporaryAccess", function()
+TestRunner.test("LaserIsland preserves Baseplate and the release hierarchy", function()
 	assertVectorClose(workspace.Baseplate.Position, Vector3.new(0, -14, 0))
 	assertVectorClose(workspace.Baseplate.Size, Vector3.new(2048, 16, 2048))
 	TestRunner.assertEqual(workspace.Baseplate.Position.Y + workspace.Baseplate.Size.Y / 2, -6)
-	local bridge = beachObby.TemporaryAccess.SpawnBridge
-	TestRunner.assertEqual(#bridge:GetChildren(), 3)
-	for _, part in bridge:GetChildren() do
-		TestRunner.assertTrue(part:IsA("BasePart"))
-		TestRunner.assertTrue((part :: BasePart).Anchored and (part :: BasePart).CanCollide)
-		TestRunner.assertEqual(#CollectionService:GetTags(part), 0)
+	TestRunner.assertFalse(workspace.Baseplate.CanCollide)
+	TestRunner.assertFalse(workspace.Baseplate.CanTouch)
+	TestRunner.assertTrue(workspace.Baseplate.CanQuery)
+	TestRunner.assertEqual(workspace.Baseplate.Transparency, 1)
+	TestRunner.assertFalse(workspace.Baseplate.CastShadow)
+	local baseplateChildren = workspace.Baseplate:GetChildren()
+	TestRunner.assertEqual(#baseplateChildren, 1)
+	local texture = baseplateChildren[1]
+	TestRunner.assertTrue(texture:IsA("Texture"))
+	TestRunner.assertEqual(texture.Name, "Texture")
+	TestRunner.assertEqual((texture :: Texture).Texture, "rbxassetid://6372755229")
+	TestRunner.assertEqual((texture :: Texture).Face, Enum.NormalId.Top)
+	TestRunner.assertEqual((texture :: Texture).StudsPerTileU, 8)
+	TestRunner.assertEqual((texture :: Texture).StudsPerTileV, 8)
+	TestRunner.assertEqual((texture :: Texture).Color3, Color3.new(0, 0, 0))
+	TestRunner.assertTrue(math.abs((texture :: Texture).Transparency - 0.8) <= 0.001)
+	TestRunner.assertTrue(beachObby:FindFirstChild("TemporaryAccess") == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("SpawnBridge", true) == nil)
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:FindFirstChild(WorldConfig.Root.World), world)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
+	local expectedWorldChildren = {
+		[WorldConfig.Root.Environment] = "Folder",
+		[WorldConfig.Scenes.HotBeach] = "Model",
+		[WorldConfig.Scenes.Water] = "Model",
+		[WorldConfig.Scenes.LaserIsland] = "Model",
+		[WorldConfig.Scenes.PalmFinish] = "Model",
+		SharedEnvironment = "Model",
+	}
+	TestRunner.assertEqual(#world:GetChildren(), 6)
+	for _, child in world:GetChildren() do
+		local expectedClass = expectedWorldChildren[child.Name]
+		TestRunner.assertTrue(expectedClass ~= nil)
+		TestRunner.assertTrue(child:IsA(expectedClass))
 	end
 end)
 
 TestRunner.test("LaserIsland preserves deep water and shark timing contracts", function()
 	local water = scene02.Geometry.WaterSurface :: BasePart
-	local kill = scene02.Hazards.WaterKillPlane :: BasePart
-	assertVectorClose(water.Position, Vector3.new(111, -2.3, -107))
-	assertVectorClose(water.Size, Vector3.new(32, 6.8, 56))
-	assertVectorClose(kill.Position, Vector3.new(111, -5.3, -107))
-	assertVectorClose(kill.Size, Vector3.new(40, 0.3, 56))
+	local kill = environment[WorldConfig.Environment.OceanKill] :: BasePart
+	assertVectorClose(water.Position, Vector3.new(111, -2.85, -107))
+	assertVectorClose(water.Size, Vector3.new(32, 5.7, 56))
+	TestRunner.assertTrue(math.abs(water.Position.Y + water.Size.Y / 2) <= 0.001)
+	assertVectorClose(kill.Position, Vector3.new(111, -1, -107))
+	assertVectorClose(kill.Size, Vector3.new(512, 0.5, 512))
 	TestRunner.assertEqual(WorldConfig.MovingHazards.Sharks[1].PhaseOffset, 0.1)
 	TestRunner.assertEqual(WorldConfig.MovingHazards.Sharks[2].PhaseOffset, 0.35)
 	for _, entry in WorldConfig.MovingHazards.Sharks do TestRunner.assertEqual(entry.OneWayDurationSeconds, 6) end
@@ -320,34 +370,115 @@ end)
 
 TestRunner.test("LaserIsland produces the approved Hazard counts", function()
 	TestRunner.assertEqual(countHazards(world.Scene01_HotBeach), 4)
-	TestRunner.assertEqual(countHazards(scene02), 3)
+	TestRunner.assertEqual(countHazards(scene02), 2)
 	TestRunner.assertEqual(countHazards(scene), 1)
-	TestRunner.assertEqual(countHazards(scene04), 1)
-	TestRunner.assertEqual(countHazards(world), 9)
+	TestRunner.assertEqual(countHazards(scene04), 2)
+	TestRunner.assertEqual(countHazards(world), 10)
 	TestRunner.assertEqual(countHazards(beachObby), 10)
 end)
 
-TestRunner.test("LaserIsland accepts Phase 2.7 Palm geometry without beginning Phase 2.8", function()
+TestRunner.test("LaserIsland accepts final Palm geometry and progression", function()
 	expectChild(scene04.Geometry, WorldConfig.PalmFinish.PalmTree, "Model")
 	expectChild(scene04.Geometry, WorldConfig.PalmFinish.Spiral.FolderName, "Folder")
 	expectChild(scene04.Geometry, WorldConfig.PalmFinish.SummitPlatform, "Part")
+	expectChild(scene04.Geometry, WorldConfig.PalmFinish.HotSandIsland, "Part")
+	expectChild(scene04.Geometry, WorldConfig.PalmFinish.HotSandTint, "Part")
 	expectChild(scene04.Hazards, WorldConfig.PalmFinish.PalmFallCatch, "Part")
-	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
-		local marker = expectChild(scene04.Coins, name, "Part")
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
-		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	expectChild(scene04.Hazards, WorldConfig.PalmFinish.PalmUpperFallCatch, "Part")
+	for _, name in WorldConfig.PalmFinish.CoinIds do
+		local coin = expectChild(scene04.Coins, name, "Part")
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), name)
 	end
-	local finish = expectChild(scene04.Triggers, WorldConfig.PalmFinish.FinishPlaceholder, "Part")
-	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
-	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
-	for _, marker in scene.Coins:GetChildren() do
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
+	local finish = expectChild(scene04.Triggers, WorldConfig.PalmFinish.FinishLine, "Part")
+	TestRunner.assertTrue(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertEqual(finish:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder), 4)
+	for _, coin in scene.Coins:GetChildren() do
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
 	end
 	local checkpoint = scene.Triggers.PalmBaseCheckpoint
-	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
-	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointId") == nil)
-	TestRunner.assertTrue(checkpoint:GetAttribute("CheckpointOrder") == nil)
-	TestRunner.assertTrue(checkpoint:GetAttribute("RespawnOffset") == nil)
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "PalmBase")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+end)
+
+TestRunner.test("LaserIsland visible route transitions have separated top faces", function()
+	local scene02Exit = scene02.Geometry.ExitPlatform :: BasePart
+	local entry = scene.Geometry.EntryPlatform :: BasePart
+	local island = scene.Geometry.IslandBase :: BasePart
+	local exit = scene.Geometry.ExitPlatform :: BasePart
+	local scene04Entry = scene04.Geometry.EntryPlatform :: BasePart
+
+	assertCFrameClose(entry.CFrame, CFrame.new(111, 1.55, -156))
+	assertCFrameClose(exit.CFrame, CFrame.new(139, 1.55, -184))
+
+	local transitionPairs = {
+		{ scene02Exit, entry },
+		{ entry, island },
+		{ exit, island },
+		{ exit, scene04Entry },
+	}
+	for _, pair in transitionPairs do
+		local first = pair[1] :: BasePart
+		local second = pair[2] :: BasePart
+		local firstBounds = getAabb(first)
+		local secondBounds = getAabb(second)
+		local overlapX = math.min(firstBounds.max.X, secondBounds.max.X) - math.max(firstBounds.min.X, secondBounds.min.X)
+		local overlapZ = math.min(firstBounds.max.Z, secondBounds.max.Z) - math.max(firstBounds.min.Z, secondBounds.min.Z)
+		local separation = math.abs(firstBounds.max.Y - secondBounds.max.Y)
+		TestRunner.assertTrue(overlapX > 0 and overlapZ > 0)
+		TestRunner.assertEqual(first.Transparency, 0)
+		TestRunner.assertEqual(second.Transparency, 0)
+		TestRunner.assertTrue(first.CanCollide and second.CanCollide)
+		TestRunner.assertTrue(separation > 0.01)
+		TestRunner.assertTrue(math.abs(separation - 0.05) <= 0.001)
+	end
+end)
+
+TestRunner.test("LaserIsland and HotSandIsland overlap without coplanar visible faces", function()
+	local island = scene.Geometry[WorldConfig.LaserIsland.IslandBase] :: Part
+	local hotSand = scene04.Geometry[WorldConfig.PalmFinish.HotSandIsland] :: Part
+	local tint = scene04.Geometry[WorldConfig.PalmFinish.HotSandTint] :: Part
+	local catch = scene04.Hazards[WorldConfig.PalmFinish.PalmFallCatch] :: BasePart
+	local islandBounds = getAabb(island)
+	local sandBounds = getAabb(hotSand)
+	local islandCenter = Vector2.new(island.Position.X, island.Position.Z)
+	local sandCenter = Vector2.new(hotSand.Position.X, hotSand.Position.Z)
+	local islandRadius = island.Size.Y / 2
+	local sandRadius = hotSand.Size.Y / 2
+	local centerDistance = (sandCenter - islandCenter).Magnitude
+	local overlapDepth = islandRadius + sandRadius - centerDistance
+	TestRunner.assertEqual(island.Shape, Enum.PartType.Cylinder)
+	TestRunner.assertEqual(hotSand.Shape, Enum.PartType.Cylinder)
+	TestRunner.assertTrue(math.abs(islandRadius - 32) <= 0.001)
+	TestRunner.assertTrue(math.abs(sandRadius - 38) <= 0.001)
+	TestRunner.assertTrue(math.abs(centerDistance - 53) <= 0.001)
+	TestRunner.assertTrue(math.abs(overlapDepth - 17) <= 0.001)
+	TestRunner.assertTrue(xzOverlap(islandBounds, sandBounds))
+	local topSeparation = math.abs(islandBounds.max.Y - sandBounds.max.Y)
+	TestRunner.assertTrue(math.abs(topSeparation - 0.1) <= 0.001)
+	TestRunner.assertTrue(topSeparation > 0.01)
+	TestRunner.assertTrue(xzOverlap(getAabb(scene.Geometry.ExitPlatform), getAabb(scene04.Geometry.EntryPlatform)))
+	TestRunner.assertTrue((scene.Geometry.ExitPlatform :: BasePart).CanCollide)
+	TestRunner.assertTrue((scene04.Geometry.EntryPlatform :: BasePart).CanCollide)
+	TestRunner.assertFalse(hotSand.CanCollide)
+	TestRunner.assertFalse(hotSand.CanTouch)
+	TestRunner.assertFalse(hotSand.CanQuery)
+	TestRunner.assertEqual(#CollectionService:GetTags(hotSand), 0)
+	assertCFrameClose(tint.CFrame, CFrame.new(164, 1.92, -184) * CFrame.Angles(0, 0, math.rad(90)))
+	assertVectorClose(tint.Size, Vector3.new(0.06, 76, 76))
+	TestRunner.assertEqual(tint.Material, Enum.Material.Neon)
+	TestRunner.assertEqual(tint.Color, Color3.fromRGB(235, 92, 42))
+	TestRunner.assertTrue(math.abs(tint.Transparency - 0.65) <= 0.001)
+	assertPassive(tint)
+	local tintTop = getAabb(tint).max.Y
+	TestRunner.assertTrue(math.abs(tintTop - 1.95) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(scene.Geometry.ExitPlatform).max.Y - tintTop - 0.1) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(scene04.Geometry.EntryPlatform).max.Y - tintTop - 0.05) <= 0.001)
+	TestRunner.assertTrue(catch.CanCollide and catch.CanTouch)
+	TestRunner.assertFalse(aabbsIntersect(getAabb(catch), getAabb(scene.Geometry.ExitPlatform)))
+	TestRunner.assertFalse(aabbsIntersect(getAabb(catch), getAabb(scene04.Geometry.EntryPlatform)))
 end)
 
 TestRunner.test("LaserIsland and World remain inside Baseplate", function()

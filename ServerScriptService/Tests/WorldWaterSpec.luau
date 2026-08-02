@@ -11,6 +11,7 @@ local WorldConfig = require(ServerScriptService.Config.WorldConfig)
 local beachObby = workspace:WaitForChild("BeachObby")
 local world = beachObby:WaitForChild("World")
 local scene = world:WaitForChild(WorldConfig.Scenes.Water)
+local environment = world:WaitForChild(WorldConfig.Root.Environment)
 
 type Aabb = { min: Vector3, max: Vector3 }
 
@@ -26,24 +27,40 @@ local function assertNoTagsOrAttributes(instance: Instance)
 	TestRunner.assertEqual(next(instance:GetAttributes()), nil, instance:GetFullName() .. " must have no attributes")
 end
 
-local function getAabb(instance: Instance): Aabb
-	if instance:IsA("Model") then
-		local cframe, size = instance:GetBoundingBox()
-		return { min = cframe.Position - size / 2, max = cframe.Position + size / 2 }
+local function countTaggedDescendants(root: Instance, tagName: string): number
+	local count = 0
+	for _, instance in CollectionService:GetTagged(tagName) do
+		if instance:IsDescendantOf(root) then
+			count += 1
+		end
 	end
-	local part = instance :: BasePart
-	local half = part.Size / 2
+	return count
+end
+
+local function getAabb(instance: Instance): Aabb
 	local min = Vector3.new(math.huge, math.huge, math.huge)
 	local max = Vector3.new(-math.huge, -math.huge, -math.huge)
-	for _, x in { -half.X, half.X } do
-		for _, y in { -half.Y, half.Y } do
-			for _, z in { -half.Z, half.Z } do
-				local point = part.CFrame:PointToWorldSpace(Vector3.new(x, y, z))
-				min = Vector3.new(math.min(min.X, point.X), math.min(min.Y, point.Y), math.min(min.Z, point.Z))
-				max = Vector3.new(math.max(max.X, point.X), math.max(max.Y, point.Y), math.max(max.Z, point.Z))
+	local partCount = 0
+
+	local function includePart(part: BasePart)
+		partCount += 1
+		local half = part.Size / 2
+		for _, x in { -half.X, half.X } do
+			for _, y in { -half.Y, half.Y } do
+				for _, z in { -half.Z, half.Z } do
+					local point = part.CFrame:PointToWorldSpace(Vector3.new(x, y, z))
+					min = Vector3.new(math.min(min.X, point.X), math.min(min.Y, point.Y), math.min(min.Z, point.Z))
+					max = Vector3.new(math.max(max.X, point.X), math.max(max.Y, point.Y), math.max(max.Z, point.Z))
+				end
 			end
 		end
 	end
+
+	if instance:IsA("BasePart") then includePart(instance) end
+	for _, descendant in instance:GetDescendants() do
+		if descendant:IsA("BasePart") then includePart(descendant) end
+	end
+	TestRunner.assertTrue(partCount > 0, instance:GetFullName() .. " must contain a BasePart")
 	return { min = min, max = max }
 end
 
@@ -51,12 +68,6 @@ local function aabbsIntersect(a: Aabb, b: Aabb): boolean
 	return a.min.X < b.max.X and a.max.X > b.min.X
 		and a.min.Y < b.max.Y and a.max.Y > b.min.Y
 		and a.min.Z < b.max.Z and a.max.Z > b.min.Z
-end
-
-local function horizontalAabbGap(a: Aabb, b: Aabb): number
-	local dx = math.max(b.min.X - a.max.X, a.min.X - b.max.X, 0)
-	local dz = math.max(b.min.Z - a.max.Z, a.min.Z - b.max.Z, 0)
-	return math.sqrt(dx * dx + dz * dz)
 end
 
 local function ringCenter(ring: Model): Vector3
@@ -133,13 +144,11 @@ local sharkRingTargets = {
 	{ shark = "Shark02", ring = "Ring07", neighbors = { "Ring06", "Ring08" } },
 }
 
--- Measured from the standard runtime R15 character before changing the water depth.
-local measuredCharacterHeight = 5.496664047241211
-local originalWaterTop = 1.1
+local alignedWaterTop = 0
 local originalWaterPositionXZ = Vector2.new(111, -107)
 local originalWaterSizeXZ = Vector2.new(32, 56)
-local originalKillPositionXZ = Vector2.new(111, -107)
-local originalKillSizeXZ = Vector2.new(40, 56)
+local oceanKillPositionXZ = Vector2.new(111, -107)
+local oceanKillSizeXZ = Vector2.new(512, 512)
 
 TestRunner.test("Water scene has the expected Model and Folder hierarchy", function()
 	TestRunner.assertTrue(scene:IsA("Model"))
@@ -170,34 +179,38 @@ TestRunner.test("WaterSurface is a passive visual", function()
 	TestRunner.assertFalse(water.CastShadow)
 end)
 
-TestRunner.test("WaterSurface retains its top and XZ contract while extending only downward", function()
+TestRunner.test("WaterSurface aligns its top with the global ocean while retaining its deep-water contract", function()
 	local water = scene.Geometry.WaterSurface :: BasePart
 	local bounds = getAabb(water)
-	TestRunner.assertTrue(math.abs(bounds.max.Y - originalWaterTop) <= 0.001)
+	TestRunner.assertEqual(water.CFrame, CFrame.new(111, -2.85, -107))
+	TestRunner.assertEqual(water.Size, Vector3.new(32, 5.7, 56))
+	TestRunner.assertTrue(math.abs(bounds.max.Y - alignedWaterTop) <= 0.001)
+	TestRunner.assertTrue(math.abs(bounds.min.Y + 5.7) <= 0.001)
 	TestRunner.assertEqual(Vector2.new(water.Position.X, water.Position.Z), originalWaterPositionXZ)
 	TestRunner.assertEqual(Vector2.new(water.Size.X, water.Size.Z), originalWaterSizeXZ)
 	TestRunner.assertTrue(water.Size.Y > 0.1)
 	TestRunner.assertTrue(bounds.min.Y < 1)
-	TestRunner.assertTrue(math.abs(water.Position.Y - (originalWaterTop - water.Size.Y / 2)) <= 0.001)
+	TestRunner.assertTrue(math.abs(water.Position.Y - (alignedWaterTop - water.Size.Y / 2)) <= 0.001)
 	TestRunner.assertEqual(water.Material, Enum.Material.Glass)
 	TestRunner.assertEqual(water.Color, Color3.fromRGB(65, 180, 255))
 	TestRunner.assertTrue(math.abs(water.Transparency - 0.35) <= 0.001)
 end)
 
-TestRunner.test("WaterKillPlane exists as a BasePart", function()
-	local killPlane = scene.Hazards:FindFirstChild(WorldConfig.Water.WaterKillPlane)
-	TestRunner.assertTrue(killPlane ~= nil and killPlane:IsA("BasePart"))
+TestRunner.test("OceanKill exists as a global Environment BasePart", function()
+	local oceanKill = environment:FindFirstChild(WorldConfig.Environment.OceanKill)
+	TestRunner.assertTrue(oceanKill ~= nil and oceanKill:IsA("BasePart"))
+	TestRunner.assertTrue(scene.Hazards:FindFirstChild("WaterKillPlane") == nil)
 end)
 
-TestRunner.test("WaterKillPlane has exactly the Hazard tag", function()
-	local killPlane = scene.Hazards.WaterKillPlane
-	local tags = CollectionService:GetTags(killPlane)
+TestRunner.test("OceanKill has exactly the Hazard tag", function()
+	local oceanKill = environment[WorldConfig.Environment.OceanKill]
+	local tags = CollectionService:GetTags(oceanKill)
 	TestRunner.assertEqual(#tags, 1)
 	TestRunner.assertEqual(tags[1], RunConfig.Tags.Hazard)
-	TestRunner.assertEqual(next(killPlane:GetAttributes()), nil)
+	TestRunner.assertEqual(next(oceanKill:GetAttributes()), nil)
 end)
 
-TestRunner.test("WaterKillPlane remains the only non-shark water Hazard", function()
+TestRunner.test("Scene02 has only shark Hazards and Environment owns OceanKill", function()
 	local nonSharkHazards = {}
 	for _, descendant in scene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard)
@@ -205,51 +218,55 @@ TestRunner.test("WaterKillPlane remains the only non-shark water Hazard", functi
 			table.insert(nonSharkHazards, descendant)
 		end
 	end
-	TestRunner.assertEqual(#nonSharkHazards, 1)
-	TestRunner.assertEqual(nonSharkHazards[1], scene.Hazards.WaterKillPlane)
+	TestRunner.assertEqual(#nonSharkHazards, 0)
+	local oceanKill = environment[WorldConfig.Environment.OceanKill]
+	TestRunner.assertTrue(CollectionService:HasTag(oceanKill, RunConfig.Tags.Hazard))
+	TestRunner.assertEqual(oceanKill.Parent, environment)
 end)
 
-TestRunner.test("WaterKillPlane has universal trigger properties", function()
-	local killPlane = scene.Hazards.WaterKillPlane :: BasePart
-	TestRunner.assertTrue(killPlane.Anchored)
-	TestRunner.assertTrue(killPlane.CanTouch)
-	TestRunner.assertTrue(killPlane.CanQuery)
-	TestRunner.assertFalse(killPlane.CanCollide)
+TestRunner.test("OceanKill has universal trigger properties", function()
+	local oceanKill = environment[WorldConfig.Environment.OceanKill] :: BasePart
+	TestRunner.assertTrue(oceanKill.Anchored)
+	TestRunner.assertTrue(oceanKill.CanTouch)
+	TestRunner.assertTrue(oceanKill.CanQuery)
+	TestRunner.assertTrue(oceanKill.CanCollide)
 end)
 
-TestRunner.test("WaterKillPlane preserves XZ and allows the measured Character to submerge", function()
+TestRunner.test("OceanKill has exact global XZ and vertical geometry", function()
+	local oceanKill = environment[WorldConfig.Environment.OceanKill] :: BasePart
+	local killBounds = getAabb(oceanKill)
+	TestRunner.assertEqual(Vector2.new(oceanKill.Position.X, oceanKill.Position.Z), oceanKillPositionXZ)
+	TestRunner.assertEqual(Vector2.new(oceanKill.Size.X, oceanKill.Size.Z), oceanKillSizeXZ)
+	TestRunner.assertEqual(oceanKill.CFrame, CFrame.new(111, -1, -107))
+	TestRunner.assertEqual(oceanKill.Size, Vector3.new(512, 0.5, 512))
+	TestRunner.assertTrue(math.abs(killBounds.max.Y + 0.75) <= 0.001)
+	TestRunner.assertTrue(math.abs(killBounds.min.Y + 1.25) <= 0.001)
+end)
+
+TestRunner.test("Water and OceanKill remain above the non-gameplay Baseplate", function()
 	local waterBounds = getAabb(scene.Geometry.WaterSurface)
-	local killPlane = scene.Hazards.WaterKillPlane :: BasePart
-	local killBounds = getAabb(killPlane)
-	TestRunner.assertEqual(Vector2.new(killPlane.Position.X, killPlane.Position.Z), originalKillPositionXZ)
-	TestRunner.assertEqual(Vector2.new(killPlane.Size.X, killPlane.Size.Z), originalKillSizeXZ)
-	local submergedDistance = waterBounds.max.Y - killBounds.max.Y
-	TestRunner.assertTrue(submergedDistance >= measuredCharacterHeight + 0.5)
-	TestRunner.assertTrue(submergedDistance <= measuredCharacterHeight + 1.5)
-end)
-
-TestRunner.test("Water volume reaches below WaterKillPlane without touching solid bottom", function()
-	local waterBounds = getAabb(scene.Geometry.WaterSurface)
-	local killBounds = getAabb(scene.Hazards.WaterKillPlane)
+	local killBounds = getAabb(environment[WorldConfig.Environment.OceanKill])
 	local baseplateBounds = getAabb(workspace.Baseplate)
 	TestRunner.assertTrue(waterBounds.min.Y < killBounds.min.Y)
 	TestRunner.assertTrue(killBounds.min.Y > baseplateBounds.max.Y)
 	TestRunner.assertTrue(waterBounds.min.Y > baseplateBounds.max.Y)
 	TestRunner.assertTrue(baseplateBounds.max.Y <= -6 + 0.001)
+	TestRunner.assertFalse(workspace.Baseplate.CanCollide)
 end)
 
-TestRunner.test("Lowered WaterKillPlane avoids Rings and shark Models", function()
-	local killBounds = getAabb(scene.Hazards.WaterKillPlane)
+TestRunner.test("OceanKill avoids Rings and shark Hazard hitboxes while passive bodies remain immersed", function()
+	local killBounds = getAabb(environment[WorldConfig.Environment.OceanKill])
 	for _, ring in scene.Geometry.Rings:GetChildren() do
 		TestRunner.assertFalse(aabbsIntersect(killBounds, getAabb(ring)))
 	end
 	for _, shark in scene.Hazards.Sharks:GetChildren() do
-		TestRunner.assertFalse(aabbsIntersect(killBounds, getAabb(shark)))
+		TestRunner.assertFalse(aabbsIntersect(killBounds, getAabb(shark.Hitbox)))
+		TestRunner.assertTrue(aabbsIntersect(killBounds, getAabb(shark.Visual.Body)))
 	end
 end)
 
-TestRunner.test("WaterKillPlane covers the WaterSurface XZ area", function()
-	local killBounds = getAabb(scene.Hazards.WaterKillPlane)
+TestRunner.test("OceanKill covers the WaterSurface XZ area", function()
+	local killBounds = getAabb(environment[WorldConfig.Environment.OceanKill])
 	local waterBounds = getAabb(scene.Geometry.WaterSurface)
 	TestRunner.assertTrue(killBounds.min.X <= waterBounds.min.X)
 	TestRunner.assertTrue(killBounds.max.X >= waterBounds.max.X)
@@ -257,12 +274,12 @@ TestRunner.test("WaterKillPlane covers the WaterSurface XZ area", function()
 	TestRunner.assertTrue(killBounds.max.Z >= waterBounds.max.Z)
 end)
 
-TestRunner.test("WaterKillPlane does not intersect EntryPlatform", function()
-	TestRunner.assertFalse(aabbsIntersect(getAabb(scene.Hazards.WaterKillPlane), getAabb(scene.Geometry.EntryPlatform)))
+TestRunner.test("OceanKill does not intersect EntryPlatform", function()
+	TestRunner.assertFalse(aabbsIntersect(getAabb(environment[WorldConfig.Environment.OceanKill]), getAabb(scene.Geometry.EntryPlatform)))
 end)
 
-TestRunner.test("WaterKillPlane does not intersect ExitPlatform", function()
-	TestRunner.assertFalse(aabbsIntersect(getAabb(scene.Hazards.WaterKillPlane), getAabb(scene.Geometry.ExitPlatform)))
+TestRunner.test("OceanKill does not intersect ExitPlatform", function()
+	TestRunner.assertFalse(aabbsIntersect(getAabb(environment[WorldConfig.Environment.OceanKill]), getAabb(scene.Geometry.ExitPlatform)))
 end)
 
 TestRunner.test("Water SceneFootprint is an invisible passive marker", function()
@@ -290,16 +307,16 @@ TestRunner.test("Water ring names match WorldConfig", function()
 	end
 end)
 
-TestRunner.test("Water ring pivots retain the accepted Phase 2.5 route", function()
+TestRunner.test("Water ring pivots retain the accepted route aligned to the global ocean", function()
 	local expected = {
-		Ring01 = Vector3.new(106, 2.5, -84),
-		Ring02 = Vector3.new(116, 2.5, -90.5),
-		Ring03 = Vector3.new(106, 2.5, -97),
-		Ring04 = Vector3.new(116, 2.5, -103.5),
-		Ring05 = Vector3.new(106, 2.5, -110),
-		Ring06 = Vector3.new(116, 2.5, -116.5),
-		Ring07 = Vector3.new(106, 2.5, -123),
-		Ring08 = Vector3.new(116, 2.5, -130),
+		Ring01 = Vector3.new(106, 1.4, -84),
+		Ring02 = Vector3.new(116, 1.4, -90.5),
+		Ring03 = Vector3.new(106, 1.4, -97),
+		Ring04 = Vector3.new(116, 1.4, -103.5),
+		Ring05 = Vector3.new(106, 1.4, -110),
+		Ring06 = Vector3.new(116, 1.4, -116.5),
+		Ring07 = Vector3.new(106, 1.4, -123),
+		Ring08 = Vector3.new(116, 1.4, -130),
 	}
 	for name, position in expected do
 		local pivot = (scene.Geometry.Rings[name] :: Model):GetPivot().Position
@@ -368,10 +385,10 @@ TestRunner.test("Water Ring08 is reachable to ExitPlatform", function()
 	TestRunner.assertTrue(gap <= 5, string.format("Exit gap is too large: %.3f", gap))
 end)
 
-TestRunner.test("Water rings have open centers above WaterSurface and WaterKillPlane", function()
-	local killTop = getAabb(scene.Hazards.WaterKillPlane).max.Y
+TestRunner.test("Water rings have open centers above WaterSurface and OceanKill", function()
+	local killTop = getAabb(environment[WorldConfig.Environment.OceanKill]).max.Y
 	local waterTop = getAabb(scene.Geometry.WaterSurface).max.Y
-	local killBounds = getAabb(scene.Hazards.WaterKillPlane)
+	local killBounds = getAabb(environment[WorldConfig.Environment.OceanKill])
 	local waterBounds = getAabb(scene.Geometry.WaterSurface)
 	for _, ring in scene.Geometry.Rings:GetChildren() do
 		local model = ring :: Model
@@ -380,7 +397,7 @@ TestRunner.test("Water rings have open centers above WaterSurface and WaterKillP
 		TestRunner.assertTrue(radius * 2 >= 9.8 and radius * 2 <= 10.3, ring.Name .. " outer diameter is out of range")
 		for _, child in model.LandingSegments:GetChildren() do
 			local segment = child :: BasePart
-			TestRunner.assertTrue(getAabb(segment).min.Y > killTop, segment.Name .. " intersects WaterKillPlane")
+			TestRunner.assertTrue(getAabb(segment).min.Y > killTop, segment.Name .. " intersects OceanKill")
 			TestRunner.assertTrue(horizontalDistanceToPart(center, segment) >= 2, segment.Name .. " intrudes into the four-stud hole")
 		end
 		TestRunner.assertTrue(waterTop < getAabb(model).min.Y)
@@ -423,35 +440,35 @@ TestRunner.test("Water route cannot use SceneFootprint as a bridge", function()
 	end
 end)
 
-TestRunner.test("Water scene contains exactly four coin position markers", function()
+TestRunner.test("Water scene contains exactly four active coins", function()
 	TestRunner.assertEqual(#scene.Coins:GetChildren(), 4)
 	for index = 1, 4 do
-		expectChild(scene.Coins, string.format("WaterCoin%02dPosition", index), "Part")
+		expectChild(scene.Coins, string.format("WaterCoin%02d", index), "Part")
+		TestRunner.assertTrue(scene.Coins:FindFirstChild(string.format("WaterCoin%02dPosition", index)) == nil)
 	end
 end)
 
-TestRunner.test("Water coin position markers are passive", function()
-	for _, marker in scene.Coins:GetChildren() do
-		local part = marker :: BasePart
+TestRunner.test("Water coins have the final active contract", function()
+	for _, coin in scene.Coins:GetChildren() do
+		local part = coin :: BasePart
 		TestRunner.assertFalse(part.CanCollide)
-		TestRunner.assertFalse(part.CanTouch)
-		TestRunner.assertFalse(part.CanQuery)
-		TestRunner.assertFalse(CollectionService:HasTag(part, RunConfig.Tags.Coin))
-		TestRunner.assertEqual(part:GetAttribute(RunConfig.Attributes.CoinId), nil)
-		assertNoTagsOrAttributes(part)
+		TestRunner.assertTrue(part.CanTouch and part.CanQuery)
+		TestRunner.assertTrue(CollectionService:HasTag(part, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(#CollectionService:GetTags(part), 1)
+		TestRunner.assertEqual(part:GetAttribute(RunConfig.Attributes.CoinId), part.Name)
 	end
 end)
 
-TestRunner.test("Water checkpoint marker is passive", function()
-	local marker = expectChild(scene.Triggers, WorldConfig.Water.LaserIslandStartMarker, "Part") :: BasePart
-	TestRunner.assertFalse(marker.CanCollide)
-	TestRunner.assertFalse(marker.CanTouch)
-	TestRunner.assertFalse(marker.CanQuery)
-	TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Checkpoint))
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.CheckpointId), nil)
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.CheckpointOrder), nil)
-	TestRunner.assertEqual(marker:GetAttribute(RunConfig.Attributes.RespawnOffset), nil)
-	assertNoTagsOrAttributes(marker)
+TestRunner.test("Water checkpoint has the final active contract", function()
+	local checkpoint = expectChild(scene.Triggers, WorldConfig.Water.LaserIslandStartCheckpoint, "Part") :: BasePart
+	TestRunner.assertFalse(checkpoint.CanCollide)
+	TestRunner.assertTrue(checkpoint.CanTouch and checkpoint.CanQuery)
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(#CollectionService:GetTags(checkpoint), 1)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "LaserIslandStart")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 3)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+	TestRunner.assertTrue(scene.Triggers:FindFirstChild("LaserIslandStartCheckpointMarker") == nil)
 end)
 
 TestRunner.test("Water Sharks folder contains exactly two configured Models", function()
@@ -548,8 +565,8 @@ TestRunner.test("Water shark paths cross the centers of Ring04 and Ring07", func
 	end
 end)
 
-TestRunner.test("Water shark endpoint envelopes stay inside WaterKillPlane", function()
-	local killBounds = getAabb(scene.Hazards.WaterKillPlane)
+TestRunner.test("Water shark endpoint envelopes stay inside OceanKill", function()
+	local killBounds = getAabb(environment[WorldConfig.Environment.OceanKill])
 	for _, entry in WorldConfig.MovingHazards.Sharks do
 		local shark = scene.Hazards.Sharks[entry.ModelName] :: Model
 		local pivot = shark:GetPivot().Position
@@ -715,18 +732,23 @@ TestRunner.test("Water retains approved Phase 2.7 world Hazard counts", function
 	for _, descendant in scene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then sceneHazards += 1 end
 	end
-	TestRunner.assertEqual(sceneHazards, 3)
+	TestRunner.assertEqual(sceneHazards, 2)
+	local environmentHazards = 0
+	for _, descendant in environment:GetDescendants() do
+		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then environmentHazards += 1 end
+	end
+	TestRunner.assertEqual(environmentHazards, 1)
 	local palmHazards = 0
 	for _, descendant in world[WorldConfig.Scenes.PalmFinish]:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then palmHazards += 1 end
 	end
-	TestRunner.assertEqual(palmHazards, 1)
+	TestRunner.assertEqual(palmHazards, 2)
 
 	local worldHazards = 0
 	for _, descendant in world:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then worldHazards += 1 end
 	end
-	TestRunner.assertEqual(worldHazards, 9)
+	TestRunner.assertEqual(worldHazards, 10)
 	local beachHazards = 0
 	for _, descendant in beachObby:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then beachHazards += 1 end
@@ -759,61 +781,60 @@ TestRunner.test("HotBeach retains exactly four active hazards", function()
 	TestRunner.assertEqual(count, 4)
 end)
 
-TestRunner.test("Water regression keeps Phase 2.7 Palm markers passive except PalmFallCatch", function()
+TestRunner.test("Water regression keeps Palm progression active and PalmFallCatch hazardous", function()
 	local palmScene = world[WorldConfig.Scenes.PalmFinish]
 	local palmFallCatch = palmScene.Hazards[WorldConfig.PalmFinish.PalmFallCatch]
+	local palmUpperFallCatch = palmScene.Hazards[WorldConfig.PalmFinish.PalmUpperFallCatch]
+	local expectedPalmHazards = {
+		[palmFallCatch] = true,
+		[palmUpperFallCatch] = true,
+	}
 	local hazardCount = 0
 	for _, descendant in palmScene:GetDescendants() do
 		if CollectionService:HasTag(descendant, RunConfig.Tags.Hazard) then
 			hazardCount += 1
-			TestRunner.assertEqual(descendant, palmFallCatch)
+			TestRunner.assertTrue(expectedPalmHazards[descendant] == true)
 		end
-		TestRunner.assertEqual(next(descendant:GetAttributes()), nil)
 		TestRunner.assertFalse(descendant:IsA("LuaSourceContainer"))
-		if descendant == palmFallCatch then
-			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 1)
-			TestRunner.assertTrue((descendant :: BasePart).CanTouch)
-		else
-			TestRunner.assertEqual(#CollectionService:GetTags(descendant), 0)
-			if descendant:IsA("BasePart") then TestRunner.assertFalse(descendant.CanTouch) end
-		end
 		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant.Anchored) end
 	end
-	TestRunner.assertEqual(hazardCount, 1)
-	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpointMarker]
-	TestRunner.assertFalse(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
-	TestRunner.assertEqual(next(checkpoint:GetAttributes()), nil)
-	for _, name in WorldConfig.PalmFinish.CoinMarkerNames do
-		local marker = palmScene.Coins[name]
-		TestRunner.assertFalse(CollectionService:HasTag(marker, RunConfig.Tags.Coin))
-		TestRunner.assertTrue(marker:GetAttribute("CoinId") == nil)
+	TestRunner.assertEqual(hazardCount, 2)
+	TestRunner.assertTrue(CollectionService:HasTag(palmFallCatch, RunConfig.Tags.Hazard))
+	TestRunner.assertTrue(CollectionService:HasTag(palmUpperFallCatch, RunConfig.Tags.Hazard))
+	local checkpoint = world[WorldConfig.Scenes.LaserIsland].Triggers[WorldConfig.LaserIsland.PalmBaseCheckpoint]
+	TestRunner.assertTrue(CollectionService:HasTag(checkpoint, RunConfig.Tags.Checkpoint))
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 4)
+	for _, name in WorldConfig.PalmFinish.CoinIds do
+		local coin = palmScene.Coins[name]
+		TestRunner.assertTrue(CollectionService:HasTag(coin, RunConfig.Tags.Coin))
+		TestRunner.assertEqual(coin:GetAttribute(RunConfig.Attributes.CoinId), name)
 	end
-	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishPlaceholder]
-	TestRunner.assertFalse(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
-	TestRunner.assertTrue(finish:GetAttribute("RequiredCheckpointOrder") == nil)
+	local finish = palmScene.Triggers[WorldConfig.PalmFinish.FinishLine]
+	TestRunner.assertTrue(CollectionService:HasTag(finish, RunConfig.Tags.Finish))
+	TestRunner.assertEqual(finish:GetAttribute(RunConfig.Attributes.RequiredCheckpointOrder), 4)
 end)
 
-TestRunner.test("VerticalSlice retains its accepted active fixture", function()
-	local expected = {
-		StartSpawn = { cframe = CFrame.new(0, 0.5, 0), size = Vector3.new(12, 1, 12), tag = RunConfig.Tags.Checkpoint },
-		StartLine = { cframe = CFrame.new(0, 3, -12), size = Vector3.new(16, 6, 1), tag = RunConfig.Tags.RunStart },
-		MidCheckpoint = { cframe = CFrame.new(0, 0.5, -28), size = Vector3.new(12, 1, 4), tag = RunConfig.Tags.Checkpoint },
-		KillBlock = { cframe = CFrame.new(0, 0.5, -20), size = Vector3.new(10, 1, 10), tag = RunConfig.Tags.Hazard },
-		DemoCoin = { cframe = CFrame.new(0, 2.5, -38), size = Vector3.new(2.5, 2.5, 2.5), tag = RunConfig.Tags.Coin },
-		FinishLine = { cframe = CFrame.new(0, 0.5, -48), size = Vector3.new(12, 1, 4), tag = RunConfig.Tags.Finish },
-	}
-	for name, contract in expected do
-		local part = beachObby.VerticalSlice:FindFirstChild(name, true)
-		TestRunner.assertTrue(part ~= nil and part:IsA("BasePart"))
-		TestRunner.assertEqual((part :: BasePart).CFrame, contract.cframe)
-		TestRunner.assertEqual((part :: BasePart).Size, contract.size)
-		TestRunner.assertTrue(CollectionService:HasTag(part :: Instance, contract.tag))
-	end
+TestRunner.test("Water release hierarchy recursively excludes VerticalSlice and KillBlock", function()
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice") == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("VerticalSlice", true) == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("KillBlock", true) == nil)
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:GetChildren()[1], world)
 end)
 
-TestRunner.test("World and VerticalSlice retain safe horizontal clearance", function()
-	local gap = horizontalAabbGap(getAabb(world), getAabb(beachObby.VerticalSlice))
-	TestRunner.assertTrue(gap >= 60, string.format("World clearance is only %.3f studs", gap))
+TestRunner.test("Release water and environment geometry remain under the sole World root", function()
+	TestRunner.assertTrue(beachObby:FindFirstChild("TemporaryAccess") == nil)
+	TestRunner.assertTrue(beachObby:FindFirstChild("SpawnBridge", true) == nil)
+	TestRunner.assertEqual(#beachObby:GetChildren(), 1)
+	TestRunner.assertEqual(beachObby:FindFirstChild(WorldConfig.Root.World), world)
+	for _, descendant in beachObby:GetDescendants() do
+		if descendant:IsA("BasePart") then TestRunner.assertTrue(descendant:IsDescendantOf(world)) end
+	end
+	for _, hazard in CollectionService:GetTagged(RunConfig.Tags.Hazard) do
+		TestRunner.assertTrue(hazard:IsDescendantOf(world))
+	end
+	TestRunner.assertTrue(scene:IsDescendantOf(world))
+	TestRunner.assertTrue(environment:IsDescendantOf(world))
 end)
 
 TestRunner.test("Entire World remains inside Baseplate", function()
@@ -824,6 +845,262 @@ TestRunner.test("Entire World remains inside Baseplate", function()
 	TestRunner.assertTrue(worldBounds.min.Z >= baseplateBounds.min.Z)
 	TestRunner.assertTrue(worldBounds.max.Z <= baseplateBounds.max.Z)
 	TestRunner.assertTrue(worldBounds.min.Y >= baseplateBounds.max.Y - 0.001)
+end)
+
+TestRunner.test("Global ocean visually surrounds the final gameplay world", function()
+	TestRunner.assertTrue(environment:IsA("Folder"))
+	TestRunner.assertEqual(#environment:GetChildren(), 2)
+	local oceanSurface = expectChild(environment, WorldConfig.Environment.OceanSurface, "Part") :: Part
+	local oceanKill = expectChild(environment, WorldConfig.Environment.OceanKill, "Part") :: Part
+	TestRunner.assertEqual(oceanSurface.Shape, Enum.PartType.Block)
+	TestRunner.assertEqual(oceanSurface.CFrame, CFrame.new(111, -0.1, -107))
+	TestRunner.assertEqual(oceanSurface.Size, Vector3.new(512, 0.2, 512))
+	TestRunner.assertEqual(oceanSurface.Material, Enum.Material.Glass)
+	TestRunner.assertEqual(oceanSurface.Color, scene.Geometry.WaterSurface.Color)
+	TestRunner.assertTrue(math.abs(oceanSurface.Transparency - 0.35) <= 0.001)
+	TestRunner.assertTrue(oceanSurface.Anchored)
+	TestRunner.assertFalse(oceanSurface.CanCollide)
+	TestRunner.assertFalse(oceanSurface.CanTouch)
+	TestRunner.assertFalse(oceanSurface.CanQuery)
+	TestRunner.assertFalse(oceanSurface.CastShadow)
+	assertNoTagsOrAttributes(oceanSurface)
+	TestRunner.assertEqual(#oceanSurface:GetChildren(), 0)
+	local surfaceBounds = getAabb(oceanSurface)
+	TestRunner.assertTrue((surfaceBounds.min - Vector3.new(-145, -0.2, -363)).Magnitude <= 0.001)
+	TestRunner.assertTrue((surfaceBounds.max - Vector3.new(367, 0, 149)).Magnitude <= 0.001)
+	local gameplayMin = Vector3.new(math.huge, math.huge, math.huge)
+	local gameplayMax = Vector3.new(-math.huge, -math.huge, -math.huge)
+	for _, sceneName in { WorldConfig.Scenes.HotBeach, WorldConfig.Scenes.Water, WorldConfig.Scenes.LaserIsland, WorldConfig.Scenes.PalmFinish } do
+		local bounds = getAabb(world[sceneName])
+		gameplayMin = Vector3.new(math.min(gameplayMin.X, bounds.min.X), math.min(gameplayMin.Y, bounds.min.Y), math.min(gameplayMin.Z, bounds.min.Z))
+		gameplayMax = Vector3.new(math.max(gameplayMax.X, bounds.max.X), math.max(gameplayMax.Y, bounds.max.Y), math.max(gameplayMax.Z, bounds.max.Z))
+	end
+	TestRunner.assertTrue(math.abs(gameplayMin.X - 79) <= 0.001)
+	TestRunner.assertTrue(math.abs(gameplayMax.X - 202) <= 0.001)
+	TestRunner.assertTrue(math.abs(gameplayMin.Z + 222) <= 0.001)
+	TestRunner.assertTrue(math.abs(gameplayMax.Z - 18) <= 0.001)
+	local margins = {
+		gameplayMin.X - surfaceBounds.min.X,
+		surfaceBounds.max.X - gameplayMax.X,
+		surfaceBounds.max.Z - gameplayMax.Z,
+		gameplayMin.Z - surfaceBounds.min.Z,
+	}
+	TestRunner.assertTrue(math.abs(margins[1] - 224) <= 0.001)
+	TestRunner.assertTrue(math.abs(margins[2] - 165) <= 0.001)
+	TestRunner.assertTrue(math.abs(margins[3] - 131) <= 0.001)
+	TestRunner.assertTrue(math.abs(margins[4] - 141) <= 0.001)
+	for _, margin in margins do TestRunner.assertTrue(margin >= 131) end
+	TestRunner.assertTrue(getAabb(oceanKill).max.Y < 0)
+	for _, sceneName in { WorldConfig.Scenes.HotBeach, WorldConfig.Scenes.Water, WorldConfig.Scenes.LaserIsland, WorldConfig.Scenes.PalmFinish } do
+		for _, descendant in world[sceneName]:GetDescendants() do
+			if descendant:IsA("BasePart") and descendant.CanCollide and descendant.Name ~= WorldConfig.PalmFinish.TrunkCore then
+				TestRunner.assertFalse(aabbsIntersect(surfaceBounds, getAabb(descendant)))
+			end
+		end
+	end
+end)
+
+TestRunner.test("Water course aligns floating route hazards and coins to the global ocean without moving connectors", function()
+	local water = scene.Geometry.WaterSurface :: BasePart
+	local oceanSurface = environment[WorldConfig.Environment.OceanSurface] :: BasePart
+	local waterBounds = getAabb(water)
+	local oceanBounds = getAabb(oceanSurface)
+	TestRunner.assertEqual(water.CFrame, CFrame.new(111, -2.85, -107))
+	TestRunner.assertEqual(water.Size, Vector3.new(32, 5.7, 56))
+	TestRunner.assertTrue(math.abs(waterBounds.max.Y) <= 0.001)
+	TestRunner.assertTrue(math.abs(waterBounds.min.Y + 5.7) <= 0.001)
+	TestRunner.assertTrue(math.abs(waterBounds.max.Y - oceanBounds.max.Y) <= 0.001)
+	TestRunner.assertEqual(water.Material, oceanSurface.Material)
+	TestRunner.assertEqual(water.Color, oceanSurface.Color)
+	TestRunner.assertTrue(math.abs(water.Transparency - oceanSurface.Transparency) <= 0.001)
+
+	local expectedRingPivots = {
+		Ring01 = Vector3.new(106, 1.4, -84),
+		Ring02 = Vector3.new(116, 1.4, -90.5),
+		Ring03 = Vector3.new(106, 1.4, -97),
+		Ring04 = Vector3.new(116, 1.4, -103.5),
+		Ring05 = Vector3.new(106, 1.4, -110),
+		Ring06 = Vector3.new(116, 1.4, -116.5),
+		Ring07 = Vector3.new(106, 1.4, -123),
+		Ring08 = Vector3.new(116, 1.4, -130),
+	}
+	local segmentCount = 0
+	local maximumRingGap = 0
+	for index = 1, 8 do
+		local name = string.format("Ring%02d", index)
+		local ring = scene.Geometry.Rings[name] :: Model
+		TestRunner.assertTrue((ring:GetPivot().Position - expectedRingPivots[name]).Magnitude <= 0.001)
+		local bounds = getAabb(ring)
+		TestRunner.assertTrue(math.abs(bounds.min.Y - 0.65) <= 0.001)
+		TestRunner.assertTrue(math.abs(bounds.max.Y - 2.15) <= 0.001)
+		TestRunner.assertTrue(math.abs(bounds.min.Y - waterBounds.max.Y - 0.65) <= 0.001)
+		TestRunner.assertEqual(#ring.LandingSegments:GetChildren(), 16)
+		segmentCount += #ring.LandingSegments:GetChildren()
+		if index < 8 then
+			maximumRingGap = math.max(maximumRingGap, ringGap(ring, scene.Geometry.Rings[string.format("Ring%02d", index + 1)]))
+		end
+	end
+	TestRunner.assertEqual(segmentCount, 128)
+	TestRunner.assertTrue(math.abs(maximumRingGap - 2.193554) <= 0.001)
+	TestRunner.assertTrue(math.abs(platformToRingGap(scene.Geometry.EntryPlatform, scene.Geometry.Rings.Ring01) - 0.993499) <= 0.001)
+	TestRunner.assertTrue(math.abs(platformToRingGap(scene.Geometry.ExitPlatform, scene.Geometry.Rings.Ring08) - 0.993499) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(scene.Geometry.Rings.Ring01).max.Y - getAabb(scene.Geometry.EntryPlatform).max.Y - 0.15) <= 0.001)
+	TestRunner.assertTrue(math.abs(getAabb(scene.Geometry.Rings.Ring08).max.Y - getAabb(scene.Geometry.ExitPlatform).max.Y - 0.15) <= 0.001)
+
+	local expectedMarkers = {
+		Shark01_Start = Vector3.new(98, 1.4, -103.5),
+		Shark01_End = Vector3.new(124, 1.4, -103.5),
+		Shark02_Start = Vector3.new(124, 1.4, -123),
+		Shark02_End = Vector3.new(98, 1.4, -123),
+	}
+	for _, entry in WorldConfig.MovingHazards.Sharks do
+		local shark = scene.Hazards.Sharks[entry.ModelName] :: Model
+		local pivotPosition = shark:GetPivot().Position
+		local startMarker = scene.MovementPaths[entry.StartMarkerName] :: BasePart
+		local endMarker = scene.MovementPaths[entry.EndMarkerName] :: BasePart
+		local startPosition = startMarker.Position
+		local endPosition = endMarker.Position
+		TestRunner.assertTrue((startPosition - expectedMarkers[entry.StartMarkerName]).Magnitude <= 0.001)
+		TestRunner.assertTrue((endPosition - expectedMarkers[entry.EndMarkerName]).Magnitude <= 0.001)
+		TestRunner.assertTrue(
+			(Vector2.new(startPosition.X, startPosition.Z) - Vector2.new(expectedMarkers[entry.StartMarkerName].X, expectedMarkers[entry.StartMarkerName].Z)).Magnitude <= 0.001
+		)
+		TestRunner.assertTrue(
+			(Vector2.new(endPosition.X, endPosition.Z) - Vector2.new(expectedMarkers[entry.EndMarkerName].X, expectedMarkers[entry.EndMarkerName].Z)).Magnitude <= 0.001
+		)
+		TestRunner.assertTrue(math.abs(startPosition.Y - 1.4) <= 0.001)
+		TestRunner.assertTrue(math.abs(endPosition.Y - 1.4) <= 0.001)
+		TestRunner.assertTrue(math.abs(startPosition.Y - endPosition.Y) <= 0.001)
+
+		local segment = endPosition - startPosition
+		local segmentLengthSquared = segment:Dot(segment)
+		TestRunner.assertTrue(segmentLengthSquared > 0)
+		local t = (pivotPosition - startPosition):Dot(segment) / segmentLengthSquared
+		TestRunner.assertTrue(t >= -0.001)
+		TestRunner.assertTrue(t <= 1.001)
+		local clampedT = math.clamp(t, 0, 1)
+		local closest = startPosition + segment * clampedT
+		TestRunner.assertTrue((pivotPosition - closest).Magnitude <= 0.01)
+		TestRunner.assertTrue(math.abs(pivotPosition.Y - 1.4) <= 0.001)
+
+		local body = shark.Visual.Body :: BasePart
+		local dorsalFin = shark.Visual.DorsalFin :: BasePart
+		local hitbox = shark.Hitbox :: BasePart
+		TestRunner.assertTrue(body:IsDescendantOf(shark))
+		TestRunner.assertTrue(dorsalFin:IsDescendantOf(shark))
+		TestRunner.assertTrue(hitbox:IsDescendantOf(shark))
+		TestRunner.assertEqual(body.Size, Vector3.new(6, 1.4, 2.6))
+		TestRunner.assertEqual(dorsalFin.Size, Vector3.new(2.4, 2.2, 0.35))
+		TestRunner.assertEqual(hitbox.Size, Vector3.new(6, 4, 2.25))
+		local pivotXZ = Vector2.new(pivotPosition.X, pivotPosition.Z)
+		for _, part in { body, dorsalFin, hitbox } do
+			TestRunner.assertTrue((Vector2.new(part.Position.X, part.Position.Z) - pivotXZ).Magnitude <= 0.001)
+		end
+
+		local bodyBounds = getAabb(body)
+		local finBounds = getAabb(dorsalFin)
+		local hitboxBounds = getAabb(hitbox)
+		TestRunner.assertTrue(math.abs(body.Position.Y - (pivotPosition.Y - 1.75)) <= 0.001)
+		TestRunner.assertTrue(math.abs(bodyBounds.min.Y - (pivotPosition.Y - 2.45)) <= 0.001)
+		TestRunner.assertTrue(math.abs(bodyBounds.max.Y - (pivotPosition.Y - 1.05)) <= 0.001)
+		TestRunner.assertTrue(math.abs(dorsalFin.Position.Y - pivotPosition.Y) <= 0.001)
+		TestRunner.assertTrue(math.abs(finBounds.min.Y - (pivotPosition.Y - 1.1)) <= 0.001)
+		TestRunner.assertTrue(math.abs(finBounds.max.Y - (pivotPosition.Y + 1.1)) <= 0.001)
+		TestRunner.assertTrue(math.abs(hitbox.Position.Y - pivotPosition.Y) <= 0.001)
+		TestRunner.assertTrue(math.abs(hitboxBounds.min.Y - (pivotPosition.Y - 2)) <= 0.001)
+		TestRunner.assertTrue(math.abs(hitboxBounds.max.Y - (pivotPosition.Y + 2)) <= 0.001)
+		local hitboxTags = CollectionService:GetTags(hitbox)
+		TestRunner.assertEqual(#hitboxTags, 1)
+		TestRunner.assertEqual(hitboxTags[1], RunConfig.Tags.Hazard)
+		TestRunner.assertTrue(math.abs(waterBounds.max.Y - bodyBounds.min.Y - 1.05) <= 0.001)
+		TestRunner.assertTrue(math.abs(bodyBounds.max.Y - waterBounds.max.Y - 0.35) <= 0.001)
+	end
+
+	local expectedCoins = {
+		WaterCoin01 = Vector3.new(116, 3.9, -90.5),
+		WaterCoin02 = Vector3.new(116, 3.9, -103.5),
+		WaterCoin03 = Vector3.new(111, 3.9, -113.25),
+		WaterCoin04 = Vector3.new(101, 3.9, -123),
+	}
+	local supportingRings = {
+		WaterCoin01 = "Ring02",
+		WaterCoin02 = "Ring04",
+		WaterCoin03 = "Ring05",
+		WaterCoin04 = "Ring07",
+	}
+	for name, expectedPosition in expectedCoins do
+		local coin = scene.Coins[name] :: BasePart
+		TestRunner.assertTrue((coin.Position - expectedPosition).Magnitude <= 0.001)
+		TestRunner.assertTrue(math.abs(getAabb(coin).min.Y - getAabb(scene.Geometry.Rings[supportingRings[name]]).max.Y - 1) <= 0.001)
+	end
+
+	TestRunner.assertEqual(scene.Geometry.EntryPlatform.CFrame, CFrame.new(111, 1.5, -70))
+	TestRunner.assertEqual(scene.Geometry.ExitPlatform.CFrame, CFrame.new(111, 1.5, -144))
+	local checkpoint = expectChild(scene.Triggers, WorldConfig.Water.LaserIslandStartCheckpoint, "Part") :: BasePart
+	TestRunner.assertEqual(checkpoint.Name, "LaserIslandStartCheckpoint")
+	TestRunner.assertEqual(checkpoint.Parent, scene.Triggers)
+	TestRunner.assertEqual(checkpoint.ClassName, "Part")
+	TestRunner.assertTrue((checkpoint.Position - Vector3.new(111, 2.3, -144)).Magnitude <= 0.001)
+	TestRunner.assertTrue((checkpoint.CFrame.RightVector - Vector3.xAxis).Magnitude <= 0.000001)
+	TestRunner.assertTrue((checkpoint.CFrame.UpVector - Vector3.yAxis).Magnitude <= 0.000001)
+	TestRunner.assertTrue((checkpoint.CFrame.LookVector + Vector3.zAxis).Magnitude <= 0.000001)
+	TestRunner.assertEqual(checkpoint.Size, Vector3.new(12, 0.4, 4))
+	TestRunner.assertTrue(checkpoint.Anchored)
+	TestRunner.assertFalse(checkpoint.CanCollide)
+	TestRunner.assertTrue(checkpoint.CanTouch)
+	TestRunner.assertTrue(checkpoint.CanQuery)
+	local checkpointTags = CollectionService:GetTags(checkpoint)
+	TestRunner.assertEqual(#checkpointTags, 1)
+	TestRunner.assertEqual(checkpointTags[1], RunConfig.Tags.Checkpoint)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointId), "LaserIslandStart")
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.CheckpointOrder), 3)
+	TestRunner.assertEqual(checkpoint:GetAttribute(RunConfig.Attributes.RespawnOffset), Vector3.new(0, 4, 0))
+	local checkpointBounds = getAabb(checkpoint)
+	local exitBounds = getAabb(scene.Geometry.ExitPlatform)
+	TestRunner.assertTrue(math.abs(checkpointBounds.min.Y - exitBounds.max.Y - 0.1) <= 0.001)
+end)
+
+TestRunner.test("OceanKill is a physical lethal catch below the passive global ocean", function()
+	local oceanSurface = environment[WorldConfig.Environment.OceanSurface] :: BasePart
+	local oceanKill = environment[WorldConfig.Environment.OceanKill] :: BasePart
+	local surfaceBounds = getAabb(oceanSurface)
+	local killBounds = getAabb(oceanKill)
+	TestRunner.assertEqual(oceanSurface.CFrame, CFrame.new(111, -0.1, -107))
+	TestRunner.assertEqual(oceanSurface.Size, Vector3.new(512, 0.2, 512))
+	TestRunner.assertFalse(oceanSurface.CanCollide)
+	TestRunner.assertFalse(oceanSurface.CanTouch)
+	TestRunner.assertFalse(oceanSurface.CanQuery)
+	assertNoTagsOrAttributes(oceanSurface)
+	TestRunner.assertEqual(oceanKill.CFrame, CFrame.new(111, -1, -107))
+	TestRunner.assertEqual(oceanKill.Size, Vector3.new(512, 0.5, 512))
+	TestRunner.assertTrue(oceanKill.CanCollide and oceanKill.CanTouch and oceanKill.CanQuery)
+	local killTags = CollectionService:GetTags(oceanKill)
+	TestRunner.assertEqual(#killTags, 1)
+	TestRunner.assertEqual(killTags[1], RunConfig.Tags.Hazard)
+	TestRunner.assertTrue(math.abs(surfaceBounds.max.Y) <= 0.001)
+	TestRunner.assertTrue(math.abs(killBounds.max.Y + 0.75) <= 0.001)
+	TestRunner.assertTrue(math.abs(killBounds.min.Y + 1.25) <= 0.001)
+	TestRunner.assertTrue(math.abs(surfaceBounds.max.Y - killBounds.max.Y - 0.75) <= 0.001)
+	TestRunner.assertTrue(math.abs(surfaceBounds.min.X - killBounds.min.X) <= 0.001)
+	TestRunner.assertTrue(math.abs(surfaceBounds.max.X - killBounds.max.X) <= 0.001)
+	TestRunner.assertTrue(math.abs(surfaceBounds.min.Z - killBounds.min.Z) <= 0.001)
+	TestRunner.assertTrue(math.abs(surfaceBounds.max.Z - killBounds.max.Z) <= 0.001)
+	for _, ring in scene.Geometry.Rings:GetChildren() do
+		local ringBounds = getAabb(ring)
+		TestRunner.assertTrue(math.abs(ringBounds.min.Y - killBounds.max.Y - 1.4) <= 0.001)
+		TestRunner.assertFalse(aabbsIntersect(ringBounds, killBounds))
+	end
+	for _, shark in scene.Hazards.Sharks:GetChildren() do
+		local hitboxBounds = getAabb((shark :: Model).Hitbox)
+		TestRunner.assertTrue(math.abs(hitboxBounds.min.Y - killBounds.max.Y - 0.15) <= 0.001)
+		TestRunner.assertFalse(aabbsIntersect(hitboxBounds, killBounds))
+	end
+	local baseplateBounds = getAabb(workspace.Baseplate)
+	TestRunner.assertTrue(math.abs(killBounds.min.Y - baseplateBounds.max.Y - 4.75) <= 0.001)
+	TestRunner.assertFalse(workspace.Baseplate.CanCollide)
+	TestRunner.assertEqual(countTaggedDescendants(environment, RunConfig.Tags.Hazard), 1)
+	TestRunner.assertEqual(countTaggedDescendants(world, RunConfig.Tags.Hazard), 10)
+	TestRunner.assertEqual(#CollectionService:GetTagged(RunConfig.Tags.Hazard), 10)
 end)
 
 return true
